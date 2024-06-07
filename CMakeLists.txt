@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20...3.26)
 
-project(phd LANGUAGES CXX)
+project(matgeo LANGUAGES CXX)
 
 if (NOT SKBUILD)
   message(WARNING "\
@@ -36,13 +36,13 @@ find_package(nanobind CONFIG REQUIRED)
 # We are now ready to compile the actual extension module
 nanobind_add_module(
   # Name of the extension
-  vor
-
+  vor_cpp
+  
   # Target the stable ABI for Python 3.12+, which reduces
   # the number of binary wheels that must be built. This
   # does nothing on older Python versions
   STABLE_ABI
-
+  
   # Build libnanobind statically and merge it into the
   # extension (which itself remains a shared library)
   #
@@ -50,30 +50,40 @@ nanobind_add_module(
   # replace this flag by NB_SHARED to conserve space by
   # reusing a shared libnanobind across libraries
   NB_STATIC
-
+  
   # Source code goes here
   src/vor.cpp
-)
+  )
 
-# Link against VORO
 include(ExternalProject)
+
+## Build and link VORO++
+# See LAMMPS cmake files: https://github.com/lammps/lammps/blob/7ef9a93a75e873484d9aad8119e91c461f130d1c/cmake/Modules/Packages/VORONOI.cmake#L9
+
 set(VORO_BUILD_CFLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${BTYPE}}")
-string(APPEND VORO_BUILD_CFLAGS ${CMAKE_CXX_FLAGS})
-# set(VORO_BUILD_OPTIONS CXX=${CMAKE_CXX_COMPILER} CFLAGS=${VORO_BUILD_CFLAGS})
-set(VORO_BUILD_CFLAGS "${CMAKE_SHARED_LIBRARY_CXX_FLAGS} ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${BTYPE}}")
-ExternalProject_Add(voro_build
+if(APPLE)
+  get_filename_component(VORO_CXX ${CMAKE_CXX_COMPILER} NAME_WE)
+  set(VORO_BUILD_OPTIONS CXX=${VORO_CXX} CFLAGS=${VORO_BUILD_CFLAGS})
+else()
+  set(VORO_BUILD_OPTIONS CXX=${CMAKE_CXX_COMPILER} CFLAGS=${VORO_BUILD_CFLAGS})
+endif()
+
+ExternalProject_Add(voro++
     URL http://math.lbl.gov/voro++/download/dir/voro++-0.4.6.tar.gz
     URL_MD5 2338b824c3b7b25590e18e8df5d68af9
-    CONFIGURE_COMMAND "" BUILD_COMMAND make ${VORO_BUILD_OPTIONS} BUILD_IN_SOURCE 1 INSTALL_COMMAND ""
+    CONFIGURE_COMMAND "" 
+    BUILD_COMMAND make ${VORO_BUILD_OPTIONS} 
+    BUILD_IN_SOURCE 1 
+    INSTALL_COMMAND ""
+    BUILD_BYPRODUCTS <SOURCE_DIR>/src/libvoro++.a
     )
-ExternalProject_get_property(voro_build SOURCE_DIR)
-set(VORO_LIBRARIES ${SOURCE_DIR}/src/libvoro++.a)
-set(VORO_INCLUDE_DIRS ${SOURCE_DIR}/src)
-
-message(STATUS "Found VORO: ${VORO_INCLUDE_DIRS} ${VORO_LIBRARIES}")
-include_directories(${VORO_INCLUDE_DIRS})
-target_link_libraries(vor PRIVATE ${VORO_LIBRARIES})
-add_dependencies(vor voro_build)
+ExternalProject_get_property(voro++ SOURCE_DIR)
+set(VOROPP_LIBRARIES ${SOURCE_DIR}/src/libvoro++.a)
+set(VOROPP_INCLUDE_DIRS ${SOURCE_DIR}/src)
+message(STATUS "Found VORO: ${VOROPP_INCLUDE_DIRS} ${VOROPP_LIBRARIES}")
+include_directories(${VOROPP_INCLUDE_DIRS})
+target_link_libraries(vor_cpp PRIVATE ${VOROPP_LIBRARIES})
+add_dependencies(vor_cpp voro++)
 
 # Install directive for scikit-build-core
-install(TARGETS vor LIBRARY DESTINATION phd)
+install(TARGETS vor_cpp LIBRARY DESTINATION matgeo)
