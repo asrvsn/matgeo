@@ -11,7 +11,7 @@ import scipy.special as special
 from typing import Tuple
 import pdb
 
-from plane import Plane, PlanarPolygon
+from .plane import Plane, PlanarPolygon
 
 class Ellipsoid:
     ''' d-dimensional ellipsoid defined by a center and Hermitian inner product '''

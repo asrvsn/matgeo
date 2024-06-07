@@ -15,8 +15,8 @@ import pdb
 import shapely
 import shapely.geometry
 
-from voronoi import poly_bounded_voronoi
-from poly_utils import to_simple_polygons
+from .voronoi import poly_bounded_voronoi
+from .poly_utils import to_simple_polygons
 
 class Plane:
     '''

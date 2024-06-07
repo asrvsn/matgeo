@@ -17,9 +17,10 @@ import pickle
 import alphashape
 import CGAL
 from compas_cgal.reconstruction import poisson_surface_reconstruction, advancing_front_surface_reconstruction
+from compas_cgal.triangulation import periodic_delaunay_triangulation
 
-from plane import Plane, PlanarPolygon
-from parallel import parallel_farm_array
+from .plane import Plane, PlanarPolygon
+from .parallel import parallel_farm_array
 
 '''
 Classes
@@ -349,6 +350,14 @@ class Triangulation:
             return Triangulation(V, F)
         else:
             raise ValueError(f'Unknown surface extraction method: {method}')
+        
+    @staticmethod
+    def periodic_delaunay(pts: np.ndarray, box: np.ndarray) -> 'Triangulation':
+        '''
+        Compute the periodic Delaunay triangulation using CGAL
+        '''
+        simplices = periodic_delaunay_triangulation(pts, box)
+        return Triangulation(pts, simplices)
 
 class FaceTriangulation(Triangulation):
 

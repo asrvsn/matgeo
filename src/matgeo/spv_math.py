@@ -7,69 +7,71 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import Delaunay
 
 def triangulate_periodic(x: np.ndarray, box: np.ndarray):
-        """
-        Calculates the periodic triangulation on the set of points x.
+    """
+    Calculates the periodic triangulation on the set of points x.
 
-        Stores:
-            self.n_v = number of vertices (int32)
-            self.tris = triangulation of the vertices (nv x 3) matrix.
-                Cells are stored in CCW order. As a convention, the first entry has the smallest cell id
-                (Which entry comes first is, in and of itself, arbitrary, but is utilised elsewhere)
-            self.vs = coordinates of each vertex; (nv x 2) matrix
-            self.v_neighbours = vertex ids (i.e. rows of self.vs) corresponding to the 3 neighbours of a given vertex (nv x 3).
-                In CCW order, where vertex i {i=0..2} is opposite cell i in the corresponding row of self.tris
-            self.neighbours = coordinates of each neighbouring vertex (nv x 3 x 2) matrix
+    Stores:
+        self.n_v = number of vertices (int32)
+        self.tris = triangulation of the vertices (nv x 3) matrix.
+            Cells are stored in CCW order. As a convention, the first entry has the smallest cell id
+            (Which entry comes first is, in and of itself, arbitrary, but is utilised elsewhere)
+        self.vs = coordinates of each vertex; (nv x 2) matrix
+        self.v_neighbours = vertex ids (i.e. rows of self.vs) corresponding to the 3 neighbours of a given vertex (nv x 3).
+            In CCW order, where vertex i {i=0..2} is opposite cell i in the corresponding row of self.tris
+        self.neighbours = coordinates of each neighbouring vertex (nv x 3 x 2) matrix
 
-        :param x: (nc x 2) matrix with the coordinates of each cell
-        """
+    :param x: (nc x 2) matrix with the coordinates of each cell
+    """
 
-        # 1. Tile cell positions 9-fold to perform the periodic triangulation
-        #   Calculates y from x. y is (9nc x 2) matrix, where the first (nc x 2) are the "true" cell positions,
-        #   and the rest are translations
+    # 1. Tile cell positions 9-fold to perform the periodic triangulation
+    #   Calculates y from x. y is (9nc x 2) matrix, where the first (nc x 2) are the "true" cell positions,
+    #   and the rest are translations
 
-        # TODO: clean-up the grid formation
-        grid_x, grid_y = np.mgrid[-1:2,-1:2]
-        grid_x[0,0], grid_x[1,1] = grid_x[1,1], grid_x[0,0]
-        grid_y[0,0], grid_y[1,1] = grid_y[1,1], grid_y[0,0]
-        grid_xy = np.array([grid_x.ravel(), grid_y.ravel()]).T
+    # TODO: clean-up the grid formation
+    grid_x, grid_y = np.mgrid[-1:2,-1:2]
+    grid_x[0,0], grid_x[1,1] = grid_x[1,1], grid_x[0,0]
+    grid_y[0,0], grid_y[1,1] = grid_y[1,1], grid_y[0,0]
+    grid_xy = np.array([grid_x.ravel(), grid_y.ravel()]).T
 
-        grid_xy[:,0] *= box[0]
-        grid_xy[:,1] *= box[1]
+    grid_xy[:,0] *= box[0]
+    grid_xy[:,1] *= box[1]
 
-        y = make_y(x, grid_xy)
+    y = make_y(x, grid_xy)
 
-        # 2. Perform the triangulation on y
-        #   The **triangle** package (tr) returns a dictionary, containing the triangulation.
-        #   This triangulation is extracted and saved as tri
-        T = Delaunay(y)
-        tri = T.simplices
+    # 2. Perform the triangulation on y
+    #   The **triangle** package (tr) returns a dictionary, containing the triangulation.
+    #   This triangulation is extracted and saved as tri
+    T = Delaunay(y)
+    tri = T.simplices
 
-        n_c = x.shape[0]
+    n_c = x.shape[0]
 
-        # 3. Find triangles with **at least one** cell within the "true" frame 
-        # (i.e. with **at least one** "normal cell").
-        # Ignore entries with -1, a quirk of the **triangle** package, which 
-        # denotes boundary triangles.
-        # Generate a mask -- one_in -- that considers such triangles.
-        # Save the new triangulation by applying the mask -- new_tri.
-        tri = tri[(tri != -1).all(axis=1)]
-        one_in = (tri < n_c).any(axis=1)
-        tri = tri[one_in]
+    # 3. Find triangles with **at least one** cell within the "true" frame 
+    # (i.e. with **at least one** "normal cell").
+    # Ignore entries with -1, a quirk of the **triangle** package, which 
+    # denotes boundary triangles.
+    # Generate a mask -- one_in -- that considers such triangles.
+    # Save the new triangulation by applying the mask -- new_tri.
+    tri = tri[(tri != -1).all(axis=1)]
+    one_in = (tri < n_c).any(axis=1)
+    tri = tri[one_in]
 
-        # 4. Remove repeats in tri
-        #   tri contains repeats of the same cells, i.e. in cases where triangles straddle a boundary
-        #   Use remove_repeats function to remove these. Repeats are flagged up as entries with the same trio of
-        #   cell ids, which are transformed by the mod function to account for periodicity. See function for more details
-        tri = remove_repeats(tri,n_c)
+    # 4. Remove repeats in tri
+    #   tri contains repeats of the same cells, i.e. in cases where triangles straddle a boundary
+    #   Use remove_repeats function to remove these. Repeats are flagged up as entries with the same trio of
+    #   cell ids, which are transformed by the mod function to account for periodicity. See function for more details
+    tri = remove_repeats(tri,n_c)
 
-        #6. Store outputs
-        # self.n_v = tri.shape[0]
-        Cents = x[tri]
-        vs = circumcenter_periodic(Cents, box)
+    return tri
 
-        #7. Manually calculate the neighbours. See doc_string for conventions.
-        v_neighbours = get_neighbours(tri)
-        neighbours = vs[v_neighbours]
+    #6. Store outputs
+    # self.n_v = tri.shape[0]
+    Cents = x[tri]
+    vs = circumcenter_periodic(Cents, box)
+
+    #7. Manually calculate the neighbours. See doc_string for conventions.
+    v_neighbours = get_neighbours(tri)
+    neighbours = vs[v_neighbours]
 
 
 @jit(nopython=True, cache=True)
@@ -221,7 +223,7 @@ def order_tris(tri):
     return tri
 
 
-@jit(nopython=True, cache=True)
+# @jit(nopython=True, cache=True)
 def remove_repeats(tri, n_c):
     """
     For a given triangulation (nv x 3), remove repeated entries (i.e. rows)
