@@ -364,6 +364,12 @@ class Sphere(Ellipsoid):
     def r(self, r: float):
         self.M = np.eye(self.ndim) * r**(-2)
 
+    @staticmethod
+    def from_poly(poly: PlanarPolygon) -> 'Sphere':
+        v = poly.centroid()
+        r = np.sqrt(poly.area() / np.pi)
+        return Sphere(v, r)
+
 if __name__ == '__main__':
 
     ''' Tests '''

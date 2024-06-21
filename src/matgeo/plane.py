@@ -485,6 +485,9 @@ class PlanarPolygon:
         ''' Check if point is contained in polygon '''
         return self.to_shapely().contains(shapely.geometry.Point(x))
     
+    def shape_index(self) -> float:
+        return self.perimeter() / np.sqrt(self.area())
+    
     @property
     def n(self) -> int:
         return self.vertices.shape[0]
@@ -601,6 +604,13 @@ class PlanarPolygon:
     @staticmethod
     def load(path: str) -> 'PlanarPolygon':
         return PlanarPolygon(np.load(path))
+    
+    @staticmethod
+    def from_center_wh(center: np.ndarray, wh: Tuple[float, float]) -> 'PlanarPolygon':
+        x, y = center
+        w, h = wh
+        return PlanarPolygon(np.array([[x - w, y - h], [x + w, y - h], [x + w, y + h], [x - w, y + h]]))
+
 
 '''
 Utility functions

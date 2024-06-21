@@ -358,6 +358,10 @@ class Triangulation:
         '''
         simplices = periodic_delaunay_triangulation(pts, box)
         return Triangulation(pts, simplices)
+    
+    # @staticmethod
+    # def periodic_delaunay_grad(pts: np.ndarray, box: np.ndarray) -> np.ndarray:
+
 
 class FaceTriangulation(Triangulation):
 
