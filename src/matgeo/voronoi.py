@@ -14,7 +14,7 @@ from scipy.spatial import ConvexHull
 import pdb
 import matplotlib.pyplot as plt
 
-from .poly_utils import polygonize_mask
+from .utils.poly import polygonize_mask
 
 eps = sys.float_info.epsilon
 

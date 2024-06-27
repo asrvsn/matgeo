@@ -9,7 +9,7 @@ from shapely.geometry.polygon import orient
 from sklearn.neighbors import KDTree
 from scipy.ndimage import binary_erosion, binary_dilation
 
-from arr_utils import flatten_list
+from .array import flatten_list
 
 ''' General helpers '''
 

@@ -91,7 +91,7 @@ class Triangulation:
         Dualize the triangulation by Voronoi rule applied to quasi-2D patches about each vertex
         '''
         polygons = []
-        centers = []
+        seeds = []
         for i in tqdm(range(self.pts.shape[0]), desc='Dualizing'):
             # Get all simplices incident to vertex
             idx = np.unique(np.where(self.simplices == i)[0])
@@ -123,18 +123,18 @@ class Triangulation:
                 j = adj[j].pop()
             # Take planar approximation of curved patch
             patch = self.pts[[i] + js]
-            plane = Plane.fit_l2(patch)
+            patch = Plane.fit_project_embed_l2(patch)
             # Dualize patch in 2D using circumcenter rule (geodesics are straight lines)
-            patch = plane.project_l2(patch)
-            center, ring = patch[0], patch[1:]
+            # patch = plane.project_l2(patch)
+            seed, ring = patch[0], patch[1:]
             N = len(ring)
             poly = np.array([
-                circumcenter_3d(center, ring[j], ring[(j+1)%N]) for j in range(N)
+                circumcenter_3d(seed, ring[j], ring[(j+1)%N]) for j in range(N)
             ])
             # Construct valid polygons from quasi-2D voronoi tessellation. Vor polygons are convex, so use the convex hull if constructing invalid ones.
             polygons.append(PlanarPolygon(poly, use_chull_if_invalid=True, check=True))
-            centers.append(center)
-        return polygons, np.array(centers)
+            seeds.append(seed)
+        return polygons, np.array(seeds)
     
     def orient_origin(self):
         '''
@@ -610,6 +610,13 @@ class VoronoiTriangulation(FaceTriangulation):
 '''
 Utility functions
 '''
+
+def circumcenter_2d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarray:
+    '''
+    Circumcenter of triangle 
+    '''
+    assert p1.shape == p2.shape == p3.shape
+    assert p1.shape[-1] == 2
 
 def circumcenter_3d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarray:
     '''

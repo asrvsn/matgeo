@@ -16,7 +16,7 @@ import shapely
 import shapely.geometry
 
 from .voronoi import poly_bounded_voronoi
-from .poly_utils import to_simple_polygons
+from .utils.poly import to_simple_polygons
 
 class Plane:
     '''
@@ -79,6 +79,14 @@ class Plane:
         Fit and project onto a best plane.
         '''
         return Plane.fit_l2(X).project_l2(X)
+    
+    @staticmethod
+    def fit_project_embed_l2(X: np.ndarray) -> np.ndarray:
+        '''
+        Fit, project, embed points in 2D plane in random basis
+        '''
+        plane = Plane.fit_l2(X)
+        return plane.embed(plane.project_l2(X))
 
     def project_l2(self, X: np.ndarray) -> np.ndarray:
         '''
@@ -361,14 +369,15 @@ class PlanarPolygon:
             e /= 2 * (self.area() ** 2)
         return e
     
-    def voronoi_tessellation(self, xs: np.ndarray) -> List['PlanarPolygon']:
+    def voronoi_tessellation(self, xs: np.ndarray, strictly_contained: bool=True) -> List['PlanarPolygon']:
         '''
         Voronoi tessellation of the region bounded by this polygon containing given points
         '''
         assert xs.ndim == 2
         assert xs.shape[1] == 2
-        vor_pts, vor_regions, _ = poly_bounded_voronoi(xs, self.to_shapely(), strictly_contained=True)
-        assert len(vor_regions) == xs.shape[0]
+        vor_pts, vor_regions, _ = poly_bounded_voronoi(xs, self.to_shapely(), strictly_contained=strictly_contained)
+        if strictly_contained:
+            assert len(vor_regions) == xs.shape[0]
         polygons = [PlanarPolygon(vor_pts[region]) for region in vor_regions] # In bijection with xs
         return polygons
     
