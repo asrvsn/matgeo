@@ -18,6 +18,7 @@ import alphashape
 import CGAL
 from compas_cgal.reconstruction import poisson_surface_reconstruction, advancing_front_surface_reconstruction
 from compas_cgal.triangulation import periodic_delaunay_triangulation
+from collections import defaultdict
 
 from .plane import Plane, PlanarPolygon
 from .parallel import parallel_farm_array
@@ -147,14 +148,53 @@ class Triangulation:
         # Flip simplices with negative dot product
         self.simplices[signs < 0] = self.simplices[signs < 0][:, ::-1]
 
+    def orient(self):
+        '''
+        Orient in-place using topology only
+        '''
+        # Create an adjacency list
+        adj_list = defaultdict(list)
+        for i, (a, b, c) in enumerate(self.simplices):
+            adj_list[frozenset([a, b])].append(i)
+            adj_list[frozenset([b, c])].append(i)
+            adj_list[frozenset([c, a])].append(i)
+
+        # Initialize
+        N = len(self.simplices)
+        oriented = np.zeros(N, dtype=bool)
+        queue = [0]  # Start with the first face
+        oriented[0] = True
+
+        while queue:
+            face_idx = queue.pop(0)
+            a, b, c = self.simplices[face_idx]
+
+            for edge in [(a, b), (b, c), (c, a)]:
+                neighbor_indices = adj_list[frozenset(edge)]
+                for neighbor_idx in neighbor_indices:
+                    if neighbor_idx != face_idx and not oriented[neighbor_idx]:
+                        # Orient the neighboring face
+                        neighbor = self.simplices[neighbor_idx]
+                        if np.where(neighbor == edge[0])[0][0] == np.where(neighbor == edge[1])[0][0] - 1:
+                            self.simplices[neighbor_idx] = neighbor[::-1]  # Reverse the face
+                        oriented[neighbor_idx] = True
+                        queue.append(neighbor_idx)
+
+    def flip_orientation(self):
+        '''
+        Flip the orientations of the simplices
+        '''
+        self.simplices = self.simplices[:, ::-1]
+
     def compute_normals(self) -> np.ndarray:
         '''
-        Compute the normals of the simplices
+        Compute the unit normals of the simplices
         '''
         assert self.ndim == 3, 'Normals only implemented for 3d'
         AB = self.pts[self.simplices[:, 1]] - self.pts[self.simplices[:, 0]]
         AC = self.pts[self.simplices[:, 2]] - self.pts[self.simplices[:, 1]]
-        normals = np.cross(AB, AC)
+        normals = np.cross(AC, AB)
+        normals /= np.linalg.norm(normals, axis=1)[:, np.newaxis]
         return normals
     
     def compute_centroids(self) -> np.ndarray:
@@ -287,7 +327,7 @@ class Triangulation:
             n_bins=50
         ) -> Tuple[np.ndarray, np.ndarray]:
         '''
-        Compute the radial distribution function between given source-destination pairs
+        Compute the geodesic radial distribution function between given source-destination pairs
         '''
         # Get indices of all points to compare
         n_from, n_to = len(from_verts), len(to_verts)
@@ -315,7 +355,7 @@ class Triangulation:
             return hist
         g = parallel_farm_array(setup_fun, hist_fun, range(n_from), name=f'RDF')
         assert g.shape == (n_from, n_bins)
-        # Normalize by number density (assuming homogeneity)
+        # Normalize by number density (assuming homogeneity i.e. stationarity of the point process)
         g /= n_to / self.area()
         _, bin_edges = np.histogram(np.zeros(1), bins=n_bins, range=(0, r_max), density=False)
         bin_midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -331,7 +371,7 @@ class Triangulation:
         print(f'Exported {self.pts.shape[0]} vertices and {self.simplices.shape[0]} triangles to {folder}')
 
     @staticmethod
-    def surface_3d(pts: np.ndarray, method='advancing_front', **kwargs) -> 'Triangulation':
+    def surface_3d(pts: np.ndarray, method='advancing_front', orient: bool=False, **kwargs) -> 'Triangulation':
         '''
         Extract a surface triangulation from a Delaunay tetrahedralization
         using one of several possible methods to extract triangles correspoding to a "surface"
@@ -339,17 +379,20 @@ class Triangulation:
         if method == 'alpha_shape':
             assert 'alpha' in kwargs, 'Alpha parameter must be specified for alpha shape method'
             mesh = alphashape.alphashape(pts, kwargs['alpha'])
-            return Triangulation(mesh.vertices, mesh.faces)
+            tri = Triangulation(mesh.vertices, mesh.faces)
         elif method == 'advancing_front':
             V, F = advancing_front_surface_reconstruction(pts)
-            return Triangulation(V, F)
+            tri = Triangulation(V, F)
         elif method == 'poisson':
             assert 'normals' in kwargs, 'Normals must be specified for Poisson surface reconstruction'
             assert pts.shape == kwargs['normals'].shape, 'Points and normals must have the same shape'
             V, F = poisson_surface_reconstruction(pts, kwargs['normals'])
-            return Triangulation(V, F)
+            tri = Triangulation(V, F)
         else:
             raise ValueError(f'Unknown surface extraction method: {method}')
+        if orient:
+            tri.orient()
+        return tri
         
     @staticmethod
     def periodic_delaunay(pts: np.ndarray, box: np.ndarray) -> 'Triangulation':
