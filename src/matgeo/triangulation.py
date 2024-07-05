@@ -5,7 +5,7 @@ Triangulations of surfaces
 import os
 import numpy as np
 from typing import Tuple, List, Dict, Set
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, KDTree
 from scipy.spatial.distance import cdist
 import pdb
 from tqdm import tqdm
@@ -197,6 +197,16 @@ class Triangulation:
         normals /= np.linalg.norm(normals, axis=1)[:, np.newaxis]
         return normals
     
+    def get_face_normal(self, i: int) -> np.ndarray:
+        '''
+        Return the normal of the i-th face
+        '''
+        AB = self.pts[self.simplices[i, 1]] - self.pts[self.simplices[i, 0]]
+        AC = self.pts[self.simplices[i, 2]] - self.pts[self.simplices[i, 1]]
+        normal = np.cross(AC, AB)
+        normal /= np.linalg.norm(normal)
+        return normal
+    
     def compute_centroids(self) -> np.ndarray:
         '''
         Compute the centroids of the simplices
@@ -360,6 +370,22 @@ class Triangulation:
         _, bin_edges = np.histogram(np.zeros(1), bins=n_bins, range=(0, r_max), density=False)
         bin_midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2
         return g, bin_midpoints
+
+    def match_orientation(self, other: 'Triangulation'):
+        '''
+        Match the orientation of the other triangulation relative to the reference point
+        '''
+        my_centroids = self.compute_centroids()
+        other_centroids = other.compute_centroids()
+        # Find a closest triangle based on centroids
+        tree = KDTree(other_centroids)
+        distances, indices = tree.query(my_centroids, k=1)
+        i = np.argmin(distances)
+        j = indices[i]
+        i_normal = self.get_face_normal(i)
+        j_normal = other.get_face_normal(j)
+        if np.dot(i_normal, j_normal) < 0:
+            self.flip_orientation()
 
     def export(self, folder: str, name: str):
         '''
