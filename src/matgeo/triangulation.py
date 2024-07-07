@@ -4,6 +4,7 @@ Triangulations of surfaces
 
 import os
 import numpy as np
+from numpy.linalg import norm
 from typing import Tuple, List, Dict, Set
 from scipy.spatial import ConvexHull, KDTree
 from scipy.spatial.distance import cdist
@@ -63,7 +64,7 @@ class Triangulation:
         assert self.ndim in [2, 3], 'Cross-product area calculation only implemented for 2d and 3d'
         AB = self.pts[self.simplices[:, 1]] - self.pts[self.simplices[:, 0]]
         AC = self.pts[self.simplices[:, 2]] - self.pts[self.simplices[:, 0]]
-        areas = np.linalg.norm(np.cross(AB, AC), axis=1) / 2
+        areas = norm(np.cross(AB, AC), axis=1) / 2
         return areas
     
     def area(self) -> float:
@@ -87,7 +88,7 @@ class Triangulation:
         cps = circumcenter_3d(vts[:, 0], vts[:, 1], vts[:, 2])
         return cps
     
-    def vor_dualize(self) -> Tuple[List[np.ndarray], np.ndarray]:
+    def vor_dualize(self) -> Tuple[List[PlanarPolygon], np.ndarray]:
         '''
         Dualize the triangulation by Voronoi rule applied to quasi-2D patches about each vertex
         '''
@@ -124,29 +125,27 @@ class Triangulation:
                 j = adj[j].pop()
             # Take planar approximation of curved patch
             patch = self.pts[[i] + js]
-            patch = Plane.fit_project_embed_l2(patch)
             # Dualize patch in 2D using circumcenter rule (geodesics are straight lines)
-            # patch = plane.project_l2(patch)
+            plane, patch = Plane.fit_project_l2(patch)
             seed, ring = patch[0], patch[1:]
             N = len(ring)
             poly = np.array([
                 circumcenter_3d(seed, ring[j], ring[(j+1)%N]) for j in range(N)
             ])
             # Construct valid polygons from quasi-2D voronoi tessellation. Vor polygons are convex, so use the convex hull if constructing invalid ones.
-            polygons.append(PlanarPolygon(poly, use_chull_if_invalid=True, check=True))
+            polygons.append(PlanarPolygon(poly, plane=plane, use_chull_if_invalid=True, check=True))
             seeds.append(seed)
         return polygons, np.array(seeds)
     
-    def orient_origin(self):
+    def orient_outward(self, origin: np.ndarray):
         '''
-        Orient the simplices so their cross product is outward-pointing
+        Orient the simplices so their cross product is outward-pointing with respect to reference point
         '''
-        normals = self.compute_normals()
-        centroids = self.compute_centroids()
-        # Compute dot product of normals with vectors from centroid to origin
-        signs = np.sign((normals * centroids).sum(axis=1))
-        # Flip simplices with negative dot product
-        self.simplices[signs < 0] = self.simplices[signs < 0][:, ::-1]
+        i = np.random.choice(len(self.simplices))
+        n_i = self.get_face_normal(i)
+        c_i = self.get_face_centroid(i)
+        if np.dot(n_i, c_i - origin) < 0:
+            self.flip_orientation()
 
     def orient(self):
         '''
@@ -194,7 +193,7 @@ class Triangulation:
         AB = self.pts[self.simplices[:, 1]] - self.pts[self.simplices[:, 0]]
         AC = self.pts[self.simplices[:, 2]] - self.pts[self.simplices[:, 1]]
         normals = np.cross(AC, AB)
-        normals /= np.linalg.norm(normals, axis=1)[:, np.newaxis]
+        normals /= norm(normals, axis=1)[:, np.newaxis]
         return normals
     
     def get_face_normal(self, i: int) -> np.ndarray:
@@ -204,7 +203,7 @@ class Triangulation:
         AB = self.pts[self.simplices[i, 1]] - self.pts[self.simplices[i, 0]]
         AC = self.pts[self.simplices[i, 2]] - self.pts[self.simplices[i, 1]]
         normal = np.cross(AC, AB)
-        normal /= np.linalg.norm(normal)
+        normal /= norm(normal)
         return normal
     
     def compute_centroids(self) -> np.ndarray:
@@ -212,6 +211,9 @@ class Triangulation:
         Compute the centroids of the simplices
         '''
         return self.pts[self.simplices].mean(axis=1)
+    
+    def get_face_centroid(self, i: int) -> np.ndarray:
+        return self.pts[self.simplices[i]].mean(axis=0)
     
     def geodesic_distance(self, i: int, j: int) -> float:
         '''
@@ -683,9 +685,11 @@ Utility functions
 def circumcenter_2d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarray:
     '''
     Circumcenter of triangle 
+    https://math.stackexchange.com/questions/2998538/explanation-of-cartesian-formula-for-circumcenter
     '''
     assert p1.shape == p2.shape == p3.shape
     assert p1.shape[-1] == 2
+    # p1 = np.hstack([p1, ])
 
 def circumcenter_3d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarray:
     '''
@@ -695,9 +699,9 @@ def circumcenter_3d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarra
     '''
     assert p1.shape == p2.shape == p3.shape
     assert p1.shape[-1] == 3
-    div = 2 * np.linalg.norm(np.cross(p1 - p2, p2 - p3), axis=-1)**2
-    alpha = np.linalg.norm(p2 - p3, axis=-1)**2 * np.dot(p1 - p2, p1 - p3) / div
-    beta = np.linalg.norm(p1 - p3, axis=-1)**2 * np.dot(p2 - p1, p2 - p3) / div
-    gamma = np.linalg.norm(p1 - p2, axis=-1)**2 * np.dot(p3 - p1, p3 - p2) / div
+    div = 2 * norm(np.cross(p1 - p2, p2 - p3), axis=-1)**2
+    alpha = norm(p2 - p3, axis=-1)**2 * np.dot(p1 - p2, p1 - p3) / div
+    beta = norm(p1 - p3, axis=-1)**2 * np.dot(p2 - p1, p2 - p3) / div
+    gamma = norm(p1 - p2, axis=-1)**2 * np.dot(p3 - p1, p3 - p2) / div
     cp = alpha * p1 + beta * p2 + gamma * p3
     return cp

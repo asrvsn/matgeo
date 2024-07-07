@@ -78,7 +78,8 @@ class Plane:
         '''
         Fit and project onto a best plane.
         '''
-        return Plane.fit_l2(X).project_l2(X)
+        plane = Plane.fit_l2(X)
+        return plane, plane.project_l2(X)
     
     @staticmethod
     def fit_project_embed_l2(X: np.ndarray) -> np.ndarray:
@@ -143,6 +144,7 @@ class PlanarPolygon:
             vertices: np.ndarray, 
             use_chull_if_invalid: bool=False,
             check: bool=True,
+            plane: Optional[Plane]=None,
         ):
         assert vertices.ndim == 2, 'X must be 2d'
         assert vertices.shape[0] >= 3, 'X must have at least 3 points'
@@ -150,8 +152,12 @@ class PlanarPolygon:
         assert nd >= 2, 'X must be at least 2-dimensional'
         # Compute planar embedding as needed
         if nd > 2:
-            plane = Plane.fit_l2(vertices)
-            vertices = plane.embed(plane.project_l2(vertices))
+            if plane is None:
+                plane = Plane.fit_l2(vertices)
+                vertices = plane.embed(plane.project_l2(vertices))
+            else:
+                # Assumes vertices are coplanar in the given plane
+                vertices = plane.embed(vertices)
         poly = Polygon(vertices)
         # Check validity and complain as needed
         if not poly.is_valid:
@@ -500,6 +506,11 @@ class PlanarPolygon:
     @property
     def n(self) -> int:
         return self.vertices.shape[0]
+    
+    @property
+    def ndim(self) -> int:
+        ''' Dimension of ambient space '''
+        return self.vertices_nd.shape[1]
 
     @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':
