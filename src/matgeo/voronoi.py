@@ -180,16 +180,17 @@ def region_to_polygon(region: np.ndarray) -> Polygon:
     region = np.append(region, region[0]).reshape(*shape)
     return Polygon(region)
 
-def poly_bounded_voronoi(pts: np.ndarray, boundary: Polygon, strictly_contained: bool=False) -> Tuple[np.ndarray, list, np.ndarray]:
+def poly_bounded_voronoi(pts: np.ndarray, boundary: Polygon, strictly_contained: bool=False) -> Tuple[np.ndarray, np.ndarray, list, np.ndarray]:
     '''
     Compute the intersection of a 2D voronoi diagram with a polygon.
     adapted from https://stackoverflow.com/questions/34968838/python-finite-boundary-voronoi-cells
     Returns:
+    - pts: seed points
     - vertices: (n,2) array of voronoi vertices
     - regions: (F,~) list of indices of vertices that make up each voronoi region in 1-1 correspondence with pts if strictly_contained=True
     - on_boundary: (F,) boolean array indicating whether each region is on the boundary (True) or not (False)
     '''
-    # returns a list of the centroids that are contained within the polygon
+    # returns a list of the seeds that are contained within the polygon
     pts_ = []
     for i, pt in enumerate(pts):
         if boundary.contains(Point(pt)):
@@ -223,7 +224,9 @@ def poly_bounded_voronoi(pts: np.ndarray, boundary: Polygon, strictly_contained:
                 new_vertices.append(coord)
         region = [vertex_map[coord] for coord in poly[:-1]]
         new_regions.append(region)
-    return np.array(new_vertices), new_regions, np.array(on_boundary)
+    
+    assert len(pts) == len(new_regions)
+    return pts, np.array(new_vertices), new_regions, np.array(on_boundary)
     
     # #plots the results
     # fig, ax = plt.subplots()

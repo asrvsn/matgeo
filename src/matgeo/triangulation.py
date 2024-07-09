@@ -134,6 +134,8 @@ class Triangulation:
             ])
             # Construct valid polygons from quasi-2D voronoi tessellation. Vor polygons are convex, so use the convex hull if constructing invalid ones.
             polygons.append(PlanarPolygon(poly, plane=plane, use_chull_if_invalid=True, check=True))
+            # # Check seed
+            # assert np.allclose(seed, plane.reverse_embed(plane.embed(seed)))
             seeds.append(seed)
         return polygons, np.array(seeds)
     

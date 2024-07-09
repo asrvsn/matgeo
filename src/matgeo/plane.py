@@ -121,6 +121,16 @@ class Plane:
         Return whether points are on the side of the plane corresponding to the right-hand rule.
         '''
         return (X - self.v) @ self.n >= 0
+    
+    def get_altaz(self) -> Tuple[float, float]:
+        ''' Get altitude and azimuth from plane normal (in degrees) ''' 
+        az = np.arctan2(self.n[1], self.n[0]) * 180 / np.pi
+        alt = np.arcsin(self.n[2]) * 180 / np.pi
+        return alt, az
+    
+    def flip(self) -> 'Plane':
+        ''' Flip the plane's orientation '''
+        return Plane(-self.n, self.v.copy())
 
     @property
     def ndim(self) -> int:
@@ -135,6 +145,21 @@ class Plane:
         Offset of plane
         '''
         return self.n @ self.v
+    
+    @staticmethod
+    def XY() -> 'Plane':
+        ''' XY plane in 3D '''
+        return Plane(np.array([0,0,1]), np.array([0,0,0]))
+    
+    @staticmethod
+    def XZ() -> 'Plane':
+        ''' XZ plane in 3D '''
+        return Plane(np.array([0,1,0]), np.array([0,0,0]))
+    
+    @staticmethod
+    def YZ() -> 'Plane':
+        ''' YZ plane in 3D '''
+        return Plane(np.array([1,0,0]), np.array([0,0,0]))
 
 class PlanarPolygon:
     '''
@@ -180,11 +205,13 @@ class PlanarPolygon:
         self.plane = plane
         self.vertices_nd = vertices_nd
 
-    def nth_moment(self, n: int, center=None):
+    def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
         Compute nth moment of area with respect to a center.
         If no center is provided, the first moment (center of mass) is used (only applicable for n >= 2).
         '''
+        if standardized:
+            assert n >= 2, 'Standardized moments are only defined for n >= 2'
         X = self.vertices
         if n >= 2:
             if center is None:
@@ -202,10 +229,13 @@ class PlanarPolygon:
             I_xx = X_cross @ (x**2 + x*x_ + x_**2) / 12
             I_yy = X_cross @ (y**2 + y*y_ + y_**2) / 12
             I_xy = X_cross @ (2*x*y + x*y_ + x_*y + 2*x_*y_) / 24
-            return np.array([
+            M2 = np.array([
                 [I_xx, I_xy],
                 [I_xy, I_yy]
             ])
+            if standardized:
+                M2 /= (self.area() ** 2)
+            return M2
             # # Note: X[:,:,None] * Y[:,None,:] is equivalent to einsum('ij,ik->ijk', X, Y)
             # inner = 2 * X_[:,:,None] * X_[:,None,:] \
             #         + X_[:,:,None] * X[:,None,:] \
@@ -215,7 +245,7 @@ class PlanarPolygon:
             # return inner.sum(axis=0) / 24
         else:
             raise ValueError('moment calculation not implemented for n > 2')
-
+        
     def area(self) -> float:
         '''
         Calculate area of polygon.
@@ -366,35 +396,36 @@ class PlanarPolygon:
         L = la.eigvalsh(S)
         return np.sqrt(L.max()), np.sqrt(L.min())
     
-    def quantizer_energy(self, x: np.ndarray, dimensionless: bool=False) -> float:
+    def trace_M2(self, center: np.ndarray=None, standardized: bool=False) -> float:
         ''' 
         Quantizer energy of a point 
         '''
-        e = np.trace(self.nth_moment(2, center=x))
-        if dimensionless:
-            e /= 2 * (self.area() ** 2)
-        return e
+        return np.trace(self.nth_moment(2, center=center, standardized=standardized))
     
-    def voronoi_tessellation(self, xs: np.ndarray, strictly_contained: bool=True) -> List['PlanarPolygon']:
+    def voronoi_tessellation(self, xs: np.ndarray, strictly_contained: bool=True, interior: bool=False) -> Tuple[List['PlanarPolygon'], np.ndarray]:
         '''
         Voronoi tessellation of the region bounded by this polygon containing given points
         '''
         assert xs.ndim == 2
         assert xs.shape[1] == 2
-        vor_pts, vor_regions, _ = poly_bounded_voronoi(xs, self.to_shapely(), strictly_contained=strictly_contained)
+        vor_pts, vor_verts, vor_regions, on_bd = poly_bounded_voronoi(xs, self.to_shapely(), strictly_contained=strictly_contained)
         if strictly_contained:
             assert len(vor_regions) == xs.shape[0]
-        polygons = [PlanarPolygon(vor_pts[region]) for region in vor_regions] # In bijection with xs
-        return polygons
+        polygons = [PlanarPolygon(vor_verts[region]) for region in vor_regions] # In bijection with xs    
+        if interior:
+            polygons = [p for p, on in zip(polygons, on_bd) if not on]
+            return vor_pts[~on_bd], polygons
+        else:
+            return vor_pts, polygons, on_bd
     
-    def voronoi_quantization_energy(self, xs: np.ndarray, dimensionless: bool=False) -> float:
+    def voronoi_quantization_energy(self, xs: np.ndarray, standardized: bool=False) -> float:
         '''
         Quantizer energy of the Voronoi tessellation (contained within self) of a set of points
         Dimensionless energy computed as in eq. (45), https://journals.aps.org/pre/pdf/10.1103/PhysRevE.82.056109
         '''
         polygons = self.voronoi_tessellation(xs)
-        e = sum([p.quantizer_energy(x, dimensionless=False) for p, x in zip(polygons, xs)])
-        if dimensionless:
+        e = sum([p.trace_M2(x, standardized=False) for p, x in zip(polygons, xs)])
+        if standardized:
             e /= xs.shape[0]
             mean_area = np.array([p.area() for p in polygons]).mean()
             e /= (2 * (mean_area ** 2))
@@ -556,6 +587,14 @@ class PlanarPolygon:
         return PlanarPolygon.from_pointcloud(pts)
 
     @staticmethod
+    def regular_ngon(n: int, r: float=1.) -> 'PlanarPolygon':
+        ''' Regular n-gon of radius r centered at origin'''
+        assert n >= 3
+        theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        pts = np.array([np.cos(theta), np.sin(theta)]).T * r
+        return PlanarPolygon(pts)
+
+    @staticmethod
     def random_regular(lam: float = 2, sigma: float=10, r: float=None) -> 'PlanarPolygon':
         n = 3 + np.random.poisson(lam)
         theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
@@ -665,9 +704,6 @@ def sqrt_pd(Sigma: np.ndarray) -> np.ndarray:
     return U @ np.diag(np.sqrt(L)) @ U.T
 
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    import mpl_tools as pt
     import random
     
     # random.seed(0)
@@ -697,17 +733,6 @@ if __name__ == '__main__':
     assert np.allclose(plane_fit.n, plane.n, atol=1e-3), 'plane_fit.n != plane.n'
     assert np.allclose(plane_fit.b, plane.b, atol=1e-3), 'plane_fit.v != plane.v'
     plane_fit = Plane.fit_l2(Y)
-
-    # # Plot points & plane
-    # lim = np.max(np.abs(X))
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.set_aspect('equal')
-    # pt.ax_plane(ax, plane)
-    # ax.scatter(X[:, 0], X[:, 1], X[:, 2])
-    # pt.ax_plane(ax, plane_fit, color='r')
-    # ax.scatter(Y[:, 0], Y[:, 1], Y[:, 2], color='r')
-    # plt.show()
 
     # Check area of regular n-gon
     for k in range(10000):
@@ -796,6 +821,15 @@ if __name__ == '__main__':
         energies = np.array(energies)
         assert np.allclose(energies, energies[0]), f'elastic energy of random {n}-gon not scale-invariant'
     print('Elastic energy is scale-invariant and random polygons have correct total curvature.')
+
+    # Check that standardized second moment is scale-invariant
+    for k in range(10000):
+        # Random polygon
+        poly = PlanarPolygon.random()
+        # Random scale
+        poly2 = poly * np.random.uniform(0.1, 100)
+        assert np.allclose(poly.trace_M2(standardized=True), poly2.trace_M2(standardized=True)), f'second moment of scaled polygon != original'
+    print('Standardized second moment is scale-invariant.')
 
     # Check aspect ratio of whitened random polygons
     for k in range(1000):
@@ -899,11 +933,11 @@ if __name__ == '__main__':
         x = np.random.randn(2) * 10
         # Random polygon
         poly = PlanarPolygon.random() - x
-        e = poly.quantizer_energy(np.zeros(2), dimensionless=True)
+        e = poly.trace_M2(np.zeros(2), dimensionless=True)
         assert e >= 0, f'quantizer energy of random polygon is negative'
         s = np.random.uniform(0.1, 100)
         poly_ = PlanarPolygon(poly.vertices * s) # Scale vertices in this coordinate system
-        e_ = poly_.quantizer_energy(np.zeros(2), dimensionless=True)
+        e_ = poly_.trace_M2(np.zeros(2), dimensionless=True)
         assert np.allclose(e, e_), f'dimensionless quantizer energy of scaled polygon != original'
     print('Dimensionless Quantizer energy is scale-invariant.')
 

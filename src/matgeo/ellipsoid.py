@@ -197,6 +197,10 @@ class Ellipsoid:
         ''' Get plane normal to major axis '''
         return Plane(self.get_major_axis(), self.v.copy())
     
+    def get_radii(self) -> np.ndarray:
+        ''' Get principal radii in descending order '''
+        return 1 / np.sqrt(la.eigvalsh(self.M)) 
+    
     def get_major_radius(self) -> float:
         ''' Get major radius '''
         _, rs = self.get_axes_stretches()
