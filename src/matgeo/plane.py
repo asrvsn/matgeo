@@ -831,6 +831,16 @@ if __name__ == '__main__':
         assert np.allclose(poly.trace_M2(standardized=True), poly2.trace_M2(standardized=True)), f'second moment of scaled polygon != original'
     print('Standardized second moment is scale-invariant.')
 
+    # Check isoperimetric inequality for standardized second moment
+    for k in range(10000):
+        # Random polygon
+        poly = PlanarPolygon.random()
+        assert poly.trace_M2(standardized=True) > 1 / (2 * np.pi), f'second moment of random polygon does not obey isoperimetric inequality'
+        # Random closed curve
+        poly = PlanarPolygon.random_closed_curve()
+        assert poly.trace_M2(standardized=True) > 1 / (2 * np.pi), f'second moment of random closed curve does not obey isoperimetric inequality'
+    print('Standardized second moment obeys isoperimetric inequality.')
+
     # Check aspect ratio of whitened random polygons
     for k in range(1000):
         # Random point cloud

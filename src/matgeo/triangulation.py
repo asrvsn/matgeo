@@ -88,7 +88,7 @@ class Triangulation:
         cps = circumcenter_3d(vts[:, 0], vts[:, 1], vts[:, 2])
         return cps
     
-    def vor_dualize(self) -> Tuple[List[PlanarPolygon], np.ndarray]:
+    def vor_dualize(self, embed_seeds: bool=False) -> Tuple[List[PlanarPolygon], np.ndarray]:
         '''
         Dualize the triangulation by Voronoi rule applied to quasi-2D patches about each vertex
         '''
@@ -136,6 +136,8 @@ class Triangulation:
             polygons.append(PlanarPolygon(poly, plane=plane, use_chull_if_invalid=True, check=True))
             # # Check seed
             # assert np.allclose(seed, plane.reverse_embed(plane.embed(seed)))
+            if embed_seeds:
+                seed = plane.embed(seed)
             seeds.append(seed)
         return polygons, np.array(seeds)
     
