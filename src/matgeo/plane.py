@@ -52,17 +52,12 @@ class Plane:
         Find best least-squares fit to a set of points.
         '''
         assert X.ndim == 2, 'X must be 2d'
-        assert X.shape[0] >= 3, 'X must have at least 3 points'
-        d = X.shape[1]
-        assert d >= 2, 'X must have at least 3 dimensions'
-        if d == 2:
-            return Plane(np.array([0,0]), np.array([0,0]))
-        else:
-            v = np.mean(X, axis=0) # Offset is center of mass
-            Xbar = X - v[None, :]
-            U, S, V = la.svd(Xbar, full_matrices=False)
-            n = V[-1, :]
-            return Plane(n, v)
+        assert X.shape[0] >= X.shape[1] >= 2, 'X must have at least as many points as dimensions'
+        v = np.mean(X, axis=0) # Offset is center of mass
+        Xbar = X - v[None, :]
+        U, S, V = la.svd(Xbar, full_matrices=False)
+        n = V[-1, :]
+        return Plane(n, v)
 
     @staticmethod
     def random(d: int, sigma_dist=10) -> 'Plane':
@@ -93,8 +88,12 @@ class Plane:
         '''
         Orthogonal projection of points to plane
         '''
-        assert X.ndim == 2, 'X must be 2d'
-        return X - (X - self.v) @ self.n[:, None] * self.n[None, :]
+        if X.ndim == 1:
+            return X - ((X - self.v) @ self.n) * self.n
+        elif X.ndim == 2:
+            return X - (X - self.v) @ self.n[:, None] * self.n[None, :]
+        else:
+            raise ValueError('X must be 1d or 2d')
 
     def embed(self, X: np.ndarray):
         '''
@@ -167,8 +166,8 @@ class PlanarPolygon:
     '''
     def __init__(self, 
             vertices: np.ndarray, 
-            use_chull_if_invalid: bool=False,
             check: bool=True,
+            use_chull_if_invalid: bool=False,
             plane: Optional[Plane]=None,
         ):
         assert vertices.ndim == 2, 'X must be 2d'
@@ -185,12 +184,11 @@ class PlanarPolygon:
                 vertices = plane.embed(vertices)
         poly = Polygon(vertices)
         # Check validity and complain as needed
-        if not poly.is_valid:
+        if check and not poly.is_valid:
             if use_chull_if_invalid:
                 vertices = vertices[ConvexHull(vertices).vertices]
                 poly = Polygon(vertices)
-            if check:
-                assert poly.is_valid, 'Polygon is invalid, reason:\n' + explain_validity(poly)
+            assert poly.is_valid, 'Polygon is invalid, reason:\n' + explain_validity(poly)
         # Orient the polygon vertices CCW in 2D
         poly = orient(poly, sign=1)
         vertices = np.array(poly.exterior.coords)[:-1] # Last point is same as first
@@ -351,18 +349,24 @@ class PlanarPolygon:
         '''
         return la.norm(self.vertices - np.roll(self.vertices, 1, axis=0), axis=1).sum()
 
-    def isoperimetric_ratio(self) -> float:
-        '''
-        Circularity metric in [0,1] defined by the isoperimetric inequality: L^2 >= 4 pi A
-        '''
-        return (4 * np.pi * self.area()) / (self.perimeter() ** 2)
-
     def isoperimetric_deficit(self) -> float:
         '''
         "Quantitative isoperimetric inequality" in the sense of 4 pi A + lambda(A) <= L^2 with equality iff A is a circle.
         https://annals.math.princeton.edu/wp-content/uploads/annals-v168-n3-p06.pdf
         '''
         return self.perimeter() / (2 * np.sqrt(np.pi * self.area())) - 1
+    
+    def isoperimetric_quotient(self) -> float:
+        '''
+        Circularity metric in [0,1] defined by the isoperimetric inequality: L^2 >= 4 pi A
+        '''
+        return (4 * np.pi * self.area()) / (self.perimeter() ** 2)
+
+    def isoperimetric_ratio(self) -> float:
+        '''
+        Sqrt() of isoperimetric_quotient
+        '''
+        return np.sqrt(self.isoperimetric_quotient())
 
     def whiten(self, eps: float=1e-12, return_W: bool=False) -> 'PlanarPolygon':
         '''
@@ -402,15 +406,13 @@ class PlanarPolygon:
         '''
         return np.trace(self.nth_moment(2, center=center, standardized=standardized))
     
-    def voronoi_tessellation(self, xs: np.ndarray, strictly_contained: bool=True, interior: bool=False) -> Tuple[List['PlanarPolygon'], np.ndarray]:
+    def voronoi_tessellation(self, xs: np.ndarray, interior: bool=False, **kwargs) -> Tuple[List['PlanarPolygon'], np.ndarray]:
         '''
         Voronoi tessellation of the region bounded by this polygon containing given points
         '''
         assert xs.ndim == 2
         assert xs.shape[1] == 2
-        vor_pts, vor_verts, vor_regions, on_bd = poly_bounded_voronoi(xs, self.to_shapely(), strictly_contained=strictly_contained)
-        if strictly_contained:
-            assert len(vor_regions) == xs.shape[0]
+        vor_pts, vor_verts, vor_regions, on_bd = poly_bounded_voronoi(xs, self.to_shapely(), **kwargs)
         polygons = [PlanarPolygon(vor_verts[region]) for region in vor_regions] # In bijection with xs    
         if interior:
             polygons = [p for p, on in zip(polygons, on_bd) if not on]
@@ -461,6 +463,22 @@ class PlanarPolygon:
         poly = self.copy()
         poly.vertices *= np.array([xres, yres])
         return poly
+    
+    def flipxy(self) -> 'PlanarPolygon':
+        ''' Flip polygon about x-axis '''
+        return PlanarPolygon(self.vertices[:, ::-1])
+    
+    def flipy(self, yval: float) -> 'PlanarPolygon':
+        ''' Flip polygon about y-value '''
+        vertices = self.vertices.copy()
+        vertices[:, 1] = yval - vertices[:, 1]
+        return PlanarPolygon(vertices)
+    
+    def flipx(self, xval: float) -> 'PlanarPolygon':
+        ''' Flip polygon about x-value '''
+        vertices = self.vertices.copy()
+        vertices[:, 0] = xval - vertices[:, 0]
+        return PlanarPolygon(vertices)
 
     def copy(self) -> 'PlanarPolygon':
         return PlanarPolygon(self.vertices.copy())
@@ -522,6 +540,12 @@ class PlanarPolygon:
     def symmetric_difference_area(self, other: 'PlanarPolygon') -> float:
         ''' Area of symmetric difference of two polygons '''
         return self.to_shapely().symmetric_difference(other.to_shapely()).area
+    
+    def iou(self, other: 'PlanarPolygon') -> float:
+        ''' Intersection over union of two polygons '''
+        ia = self.to_shapely().intersection(other.to_shapely()).area
+        ua = self.area() + other.area() - ia
+        return ia / ua
 
     def bounding_box(self) -> Tuple[float, float, float, float]:
         ''' Bounding box of polygon '''
@@ -533,6 +557,9 @@ class PlanarPolygon:
     
     def shape_index(self) -> float:
         return self.perimeter() / np.sqrt(self.area())
+    
+    def hullify(self) -> 'PlanarPolygon':
+        return PlanarPolygon.from_pointcloud(self.vertices)
     
     @property
     def n(self) -> int:
@@ -626,6 +653,15 @@ class PlanarPolygon:
         ''' Isoperimetric deficit of regular n-gon '''
         assert n >= 3
         return np.sqrt(n * np.tan(np.pi / n) / np.pi) - 1
+    
+    @staticmethod
+    def iq_ngon(n: int) -> float:
+        assert n >= 3
+        return np.pi / (n * np.tan(np.pi / n))
+    
+    @staticmethod
+    def ir_ngon(n: int) -> float:
+        return np.sqrt(PlanarPolygon.iq_ngon(n))
 
     @staticmethod
     def area_ngon(n: int, r: float=1) -> float:
@@ -653,11 +689,11 @@ class PlanarPolygon:
         return c * np.eye(2)
     
     @staticmethod
-    def quantization_energy_n_cell(n: int, r: float=1) -> float:
+    def trace_m2_ngon(n: int, r: float=1) -> float:
         ''' Quantization energy density of a tessellation made of regular n-gons '''
         assert n in [3, 4, 6], 'n must be 3, 4, or 6'
         e = np.trace(PlanarPolygon.second_moment_ngon(n, r))
-        e /= 2 * (PlanarPolygon.area_ngon(n, r) ** 2)
+        e /= (PlanarPolygon.area_ngon(n, r) ** 2)
         return e
     
     @staticmethod
@@ -840,6 +876,14 @@ if __name__ == '__main__':
         poly = PlanarPolygon.random_closed_curve()
         assert poly.trace_M2(standardized=True) > 1 / (2 * np.pi), f'second moment of random closed curve does not obey isoperimetric inequality'
     print('Standardized second moment obeys isoperimetric inequality.')
+
+    # Check isoperimetric quotient for regular n-gons
+    for k in range(1000):
+        # Random polygon
+        poly = PlanarPolygon.random_regular()
+        iq = np.pi / (poly.n * np.tan(np.pi / poly.n))
+        assert np.isclose(poly.isoperimetric_quotient(), iq), f'isoperimetric quotient of random {poly.n}-gon != pi/(n*tan(pi/n))'
+    print('Isoperimetric quotient of regular n-gon is correct.') 
 
     # Check aspect ratio of whitened random polygons
     for k in range(1000):

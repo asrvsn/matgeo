@@ -188,9 +188,10 @@ class Ellipsoid:
         return P, rs
     
     def get_major_axis(self) -> np.ndarray:
-        ''' Get vector of major axis '''
+        ''' Get vector of major axis, with length touching the ellipse '''
         P, rs = self.get_axes_stretches() # radii are in descending order
         n = P[:, 0]
+        n *= rs[0]
         return n
     
     def get_major_plane(self) -> Plane:
