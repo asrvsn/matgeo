@@ -8,7 +8,7 @@ import numpy.linalg as la
 import scipy.optimize as scopt
 from scipy.linalg import sqrtm
 import scipy.special as special
-from typing import Tuple
+from typing import Tuple, Union, List
 import pdb
 
 from .plane import Plane, PlanarPolygon
@@ -304,7 +304,7 @@ class Ellipsoid:
         X = self.map_sphere(X)
         return PlanarPolygon(X)
     
-    def align_axes(self, order='ascending') -> Tuple['Ellipsoid', np.ndarray]:
+    def align_axes(self, order='ascending') -> Tuple['Ellipsoid', callable, np.ndarray]:
         '''
         Align ellipsoid principal radii with axes [x, y, z, ...] in specified order
         Return affine transform T such that T(x) = x' where x' is the new coordinates
@@ -316,11 +316,61 @@ class Ellipsoid:
             L = L[::-1]
             P = P[:, ::-1]
         T = lambda x: (x - v) @ P
-        return Ellipsoid(np.diag(L), np.zeros_like(self.v)), T
+        return Ellipsoid(np.diag(L), np.zeros_like(self.v)), T, v.copy()
+    
+    def invert_align_axes(self, order='ascending') -> Tuple['Ellipsoid', callable, np.ndarray]:
+        '''
+        Get the inverse transform of align_axes()
+        Align ellipsoid principal radii with axes [x, y, z, ...] in specified order
+        Return affine transform T such that T(x) = x' where x' is the new coordinates
+        '''
+        L, P = la.eigh(self.M)
+        v = self.v.copy()
+        assert order in ['ascending', 'descending'], 'order must be ascending or descending'
+        if order == 'ascending':
+            L = L[::-1]
+            P = P[:, ::-1]
+        T = lambda y: y @ P.T + v
+        return T
     
     def copy(self) -> 'Ellipsoid':
         return Ellipsoid(self.M.copy(), self.v.copy())
+    
+    def plane_intersection(self, plane: Plane) -> np.ndarray:
+        '''
+        Compute intersection of plane with ellipsoid, either as points (2D) or as an ellipse (3D)
+        '''
+        assert self.ndim == plane.ndim, 'Ellipsoid and plane must have the same ambient dimension'
+        if self.ndim == 2:
+            # 1. Put ellipse in standard form (center at origin, axes aligned)
+            ell, T, v = self.align_axes()
+            # 2. Apply affine transform T to plane to put it in the same basis
+            plane = plane.affine_transform(T, v)
+            # 3. Solve resulting quadratic equation x^2 / a^2 + (mx + c)^2 / b^2 = 1 for real roots
+            m, c = plane.slope_intercept()
+            a, b = ell.get_stretches_diagonal()
+            # (a^2m^2 + b^2)x^2 + 2a^2mcx + a^2(c^2-b^2) = 0
+            roots = np.roots(np.array([
+                a**2 * m**2 + b**2,
+                2 * a**2 * m * c,
+                a**2 * (c**2 - b**2),
+            ]))
+            roots = roots[np.isclose(roots.imag, 0)].real
+            # 4. Get 2D points in original basis
+            pts = np.vstack((roots, m * roots + c)).T
+            T_ = self.invert_align_axes()
+            return T_(pts)
+        elif self.ndim == 3:
+            raise NotImplementedError('2D ellipses in arbitrary 3D position not yet implemented')
+        else:
+            raise NotImplementedError('Hyperplane/Hyperellipsoid intersection not implemented')
 
+    def get_stretches_diagonal(self) -> np.ndarray:
+        '''
+        Get the stretches in descending order when aligned with the principal axes
+        '''
+        assert np.count_nonzero(self.M - np.diag(np.diagonal(self.M))) == 0, 'Ellipse must be aligned so M is diagonal'
+        return 1 / np.sqrt(np.diagonal(self.M))
     @staticmethod
     def from_poly(poly: PlanarPolygon, equiarea: bool=True) -> 'Ellipsoid':
         v = poly.centroid()

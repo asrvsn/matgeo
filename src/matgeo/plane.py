@@ -130,6 +130,23 @@ class Plane:
     def flip(self) -> 'Plane':
         ''' Flip the plane's orientation '''
         return Plane(-self.n, self.v.copy())
+    
+    def affine_transform(self, T: callable, v: np.ndarray) -> 'Plane':
+        '''
+        Apply affine transform T(x) = L(x - v) to plane
+        '''
+        n = T(self.n.copy() + v) # n is a basepointed vector
+        w = T(self.v.copy())
+        return Plane(n, w)
+
+    def slope_intercept(self) -> Tuple[float, float]:
+        '''
+        Return 1D plane in y = mx + b form
+        '''
+        assert self.ndim == 2, 'Plane must be a line in 2D'
+        m = -self.n[0] / self.n[1]
+        b = self.v @ self.n / self.n[1]
+        return m, b
 
     @property
     def ndim(self) -> int:
