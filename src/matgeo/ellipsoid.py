@@ -307,7 +307,7 @@ class Ellipsoid:
     def align_axes(self, order='ascending') -> Tuple['Ellipsoid', callable, np.ndarray]:
         '''
         Align ellipsoid principal radii with axes [x, y, z, ...] in specified order
-        Return affine transform T such that T(x) = x' where x' is the new coordinates
+        Return affine transform T such that T(x) = y where y is the aligned coordinates
         '''
         L, P = la.eigh(self.M)
         v = self.v.copy()
@@ -318,11 +318,11 @@ class Ellipsoid:
         T = lambda x: (x - v) @ P
         return Ellipsoid(np.diag(L), np.zeros_like(self.v)), T, v.copy()
     
-    def invert_align_axes(self, order='ascending') -> Tuple['Ellipsoid', callable, np.ndarray]:
+    def invert_align_axes(self, order='ascending') -> callable:
         '''
         Get the inverse transform of align_axes()
         Align ellipsoid principal radii with axes [x, y, z, ...] in specified order
-        Return affine transform T such that T(x) = x' where x' is the new coordinates
+        Return affine transform T_ such that T_(y) = x where y is the aligned coordinates
         '''
         L, P = la.eigh(self.M)
         v = self.v.copy()
@@ -347,8 +347,8 @@ class Ellipsoid:
             # 2. Apply affine transform T to plane to put it in the same basis
             plane = plane.affine_transform(T, v)
             # 3. Solve resulting quadratic equation x^2 / a^2 + (mx + c)^2 / b^2 = 1 for real roots
-            m, c = plane.slope_intercept()
             a, b = ell.get_stretches_diagonal()
+            m, c = plane.slope_intercept()
             # (a^2m^2 + b^2)x^2 + 2a^2mcx + a^2(c^2-b^2) = 0
             roots = np.roots(np.array([
                 a**2 * m**2 + b**2,
@@ -371,6 +371,7 @@ class Ellipsoid:
         '''
         assert np.count_nonzero(self.M - np.diag(np.diagonal(self.M))) == 0, 'Ellipse must be aligned so M is diagonal'
         return 1 / np.sqrt(np.diagonal(self.M))
+        
     @staticmethod
     def from_poly(poly: PlanarPolygon, equiarea: bool=True) -> 'Ellipsoid':
         v = poly.centroid()

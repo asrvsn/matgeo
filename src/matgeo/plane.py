@@ -141,12 +141,12 @@ class Plane:
 
     def slope_intercept(self) -> Tuple[float, float]:
         '''
-        Return 1D plane in y = mx + b form
+        Return 1D plane in y = mx + c form
         '''
         assert self.ndim == 2, 'Plane must be a line in 2D'
         m = -self.n[0] / self.n[1]
-        b = self.v @ self.n / self.n[1]
-        return m, b
+        c = self.v @ self.n / self.n[1]
+        return m, c
 
     @property
     def ndim(self) -> int:
@@ -394,6 +394,7 @@ class PlanarPolygon:
         Sigma = self.covariance_matrix()
         W = sqrt_pd_inv(Sigma, eps) # W is symmetric
         V = V @ W
+        V += self.centroid()
         poly = PlanarPolygon(V)
         return (poly, W) if return_W else poly
 
