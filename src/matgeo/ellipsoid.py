@@ -407,6 +407,34 @@ class Ellipsoid:
     def sphere(v: np.ndarray=None, r: float=1) -> 'Ellipsoid':
         return Ellipsoid.n_sphere(2, v=v, r=r)
 
+class Ellipse(Ellipsoid):
+    def __init__(self, M: np.ndarray, v: np.ndarray):
+        assert v.shape == (2,), 'v must be 2d'
+        super().__init__(M, v)
+
+    def __add__(self, x: np.ndarray):
+        return Ellipse(self.M.copy(), self.v + x)
+
+    def __sub__(self, x: np.ndarray):
+        return Ellipse(self.M.copy(), self.v - x)
+
+    def __mul__(self, x: float):
+        return Ellipse(self.M * 1/(x**2), self.v.copy())
+
+    def __truediv__(self, x: float):
+        return Ellipse(self.M * (x**2), self.v.copy())
+
+    def flipy(self, yval: float) -> 'Ellipse':
+        return Ellipse(self.M.copy(), np.array([self.v[0], yval-self.v[1]]))
+    
+    @staticmethod
+    def from_ellipsoid(ell: Ellipsoid) -> 'Ellipse':
+        return Ellipse(ell.M.copy(), ell.v.copy())
+    
+    @staticmethod
+    def from_poly(poly: PlanarPolygon) -> 'Ellipse':
+        return Ellipse.from_ellipsoid(Ellipsoid.from_poly(poly))
+    
 class Sphere(Ellipsoid):
     '''
     Convenience class to distinguish by type
@@ -473,10 +501,17 @@ class Circle(Sphere):
         return Circle(np.array([self.v[0], yval-self.v[1]]), self.r)
     
     @staticmethod
-    def from_ellipse(ell: Ellipsoid) -> 'Circle':
-        assert ell.ndim == 2, 'Ellipse must be 2d to cast into circle'
+    def from_ellipse(ell: Ellipse) -> 'Circle':
         sph = Sphere.from_ellipsoid(ell)
         return Circle(sph.v, sph.r)
+    
+    @staticmethod
+    def from_sphere(sph: Sphere) -> 'Circle':
+        return Circle(sph.v, sph.r)
+    
+    @staticmethod
+    def from_poly(poly: PlanarPolygon) -> 'Circle':
+        return Circle.from_sphere(Sphere.from_poly(poly))
 
 if __name__ == '__main__':
 
