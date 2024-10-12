@@ -425,7 +425,14 @@ class Ellipse(Ellipsoid):
         return Ellipse(self.M * (x**2), self.v.copy())
 
     def flipy(self, yval: float) -> 'Ellipse':
-        return Ellipse(self.M.copy(), np.array([self.v[0], yval-self.v[1]]))
+        Iy = np.diag([1, -1])
+        b = np.array([0, yval]) 
+        v = Iy @ self.v + b
+        M = Iy @ self.M @ Iy.T
+        return Ellipse(M, v)
+    
+    def copy(self) -> 'Ellipse':
+        return Ellipse(self.M.copy(), self.v.copy())
     
     @staticmethod
     def from_ellipsoid(ell: Ellipsoid) -> 'Ellipse':
@@ -464,6 +471,9 @@ class Sphere(Ellipsoid):
 
     def __truediv__(self, x: float):
         return Sphere(self.v.copy(), self.r / x)
+    
+    def copy(self) -> 'Sphere':
+        return Sphere(self.v.copy(), self.r)
 
     @staticmethod
     def from_poly(poly: PlanarPolygon) -> 'Sphere':
@@ -499,6 +509,9 @@ class Circle(Sphere):
     def flipy(self, yval: float) -> 'Circle':
         ''' Flip the y-coordinate of the center of the circle '''
         return Circle(np.array([self.v[0], yval-self.v[1]]), self.r)
+    
+    def copy(self) -> 'Circle':
+        return Circle(self.v.copy(), self.r)
     
     @staticmethod
     def from_ellipse(ell: Ellipse) -> 'Circle':
