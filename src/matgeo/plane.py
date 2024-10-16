@@ -200,11 +200,18 @@ class PlanarPolygon:
                 # Assumes vertices are coplanar in the given plane
                 vertices = plane.embed(vertices)
         poly = Polygon(vertices)
-        # Check validity and complain as needed
+        # Check validity and try to recover / complain as needed
         if check and not poly.is_valid:
             if use_chull_if_invalid:
                 vertices = vertices[ConvexHull(vertices).vertices]
                 poly = Polygon(vertices)
+            else:
+                # Try buffer(0) trick
+                poly = poly.buffer(0)
+                if type(poly) == shapely.geometry.MultiPolygon:
+                    # Extract polygon with largest area
+                    poly = max(poly.geoms, key=lambda x: x.area)
+                assert type(poly) == shapely.geometry.Polygon
             assert poly.is_valid, 'Polygon is invalid, reason:\n' + explain_validity(poly)
         # Orient the polygon vertices CCW in 2D
         poly = orient(poly, sign=1)
