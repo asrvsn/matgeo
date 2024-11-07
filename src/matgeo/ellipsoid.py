@@ -338,6 +338,27 @@ class Ellipsoid:
         T = lambda y: y @ P.T + v
         return T
     
+    def get_affine_matrix(self, order='descending') -> np.ndarray:
+        '''
+        Same as invert_align_axes(), in affine matrix form
+        '''
+        _, P = la.eigh(self.M)
+        assert order in ['ascending', 'descending'], 'order must be ascending or descending'
+        if order == 'ascending':
+            P = P[:, ::-1]
+        return np.vstack((
+            np.hstack((P, self.v[:, None])),
+            np.array([0, 0, 1])
+        ))
+    
+    def apply_affine(self, T: np.ndarray) -> 'Ellipsoid':
+        ''' Apply affine transform T to the ellipsoid '''
+        d = self.ndim
+        P = T[:d, :d]
+        M = P @ self.M @ P.T
+        v = P @ self.v + T[:d, d]
+        return Ellipsoid(M, v)
+    
     def copy(self) -> 'Ellipsoid':
         return Ellipsoid(self.M.copy(), self.v.copy())
     
@@ -433,6 +454,13 @@ class Ellipse(Ellipsoid):
     
     def copy(self) -> 'Ellipse':
         return Ellipse(self.M.copy(), self.v.copy())
+    
+    def get_rotation(self) -> float:
+        ''' Get angle of rotation with respect to COM '''
+        P, _ = self.get_axes_stretches()
+        P = P.T
+        theta = np.arctan2(P[1,0], P[0,0]) # Angle from orthogonal matrix P.T
+        return theta
     
     @staticmethod
     def from_ellipsoid(ell: Ellipsoid) -> 'Ellipse':

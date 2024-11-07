@@ -4,6 +4,10 @@ Stuff on the torus [0, 1]^d
 import numpy as np
 from scipy.spatial.distance import cdist, pdist
 
+'''
+Helper functions
+'''
+
 def dists_td(xs: np.ndarray) -> np.ndarray:
     '''
     Pairwise Euclidean distance in [0, 1]^d respecting periodic boundary conditions

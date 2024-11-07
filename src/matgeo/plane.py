@@ -11,14 +11,17 @@ from shapely import Polygon
 from shapely.geometry.polygon import orient
 from shapely.validation import explain_validity
 from scipy.spatial import ConvexHull
+from scipy.spatial.distance import pdist
 import pdb
 import shapely
 import shapely.geometry
+import cv2
 
-from .voronoi import poly_bounded_voronoi
+from .surface import *
+from .voronoi import poly_bounded_voronoi, voronoi_flat_torus
 from .utils.poly import to_simple_polygons
 
-class Plane:
+class Plane(Surface):
     '''
     Hyperplane in d dimensions represented in normal-offset form.
     If in ambient two dimensions, then the "plane" is a line.
@@ -177,7 +180,7 @@ class Plane:
         ''' YZ plane in 3D '''
         return Plane(np.array([1,0,0]), np.array([0,0,0]))
 
-class PlanarPolygon:
+class PlanarPolygon(SurfacePolygon):
     '''
     Planar representation of coplanar polygonal points in d >= 2 dimensions.
     '''
@@ -199,33 +202,34 @@ class PlanarPolygon:
             else:
                 # Assumes vertices are coplanar in the given plane
                 vertices = plane.embed(vertices)
-        poly = Polygon(vertices)
-        # Check validity and try to recover / complain as needed
-        if check and not poly.is_valid:
-            if use_chull_if_invalid:
-                vertices = vertices[ConvexHull(vertices).vertices]
-                poly = Polygon(vertices)
-            else:
-                # Try buffer(0) trick
-                poly = poly.buffer(0)
-                if type(poly) == shapely.geometry.MultiPolygon:
-                    # Extract polygon with largest area
-                    poly = max(poly.geoms, key=lambda x: x.area)
-                assert type(poly) == shapely.geometry.Polygon
-            assert poly.is_valid, 'Polygon is invalid, reason:\n' + explain_validity(poly)
-        # Orient the polygon vertices CCW in 2D
-        poly = orient(poly, sign=1)
-        vertices = np.array(poly.exterior.coords)[:-1] # Last point is same as first
+        # Check validity and try to recover / complain as needed (uses Shapely)
+        if check: 
+            poly = Polygon(vertices)
+            if not poly.is_valid:
+                if use_chull_if_invalid:
+                    vertices = vertices[ConvexHull(vertices).vertices]
+                    poly = Polygon(vertices)
+                else:
+                    # Try buffer(0) trick
+                    poly = poly.buffer(0)
+                    if type(poly) == shapely.geometry.MultiPolygon:
+                        # Extract polygon with largest area
+                        poly = max(poly.geoms, key=lambda x: x.area)
+                    assert type(poly) == shapely.geometry.Polygon
+                assert poly.is_valid, 'Polygon is invalid, reason:\n' + explain_validity(poly)
+            # Orient the polygon vertices CCW in 2D
+            poly = orient(poly, sign=1)
+            vertices = np.array(poly.exterior.coords)[:-1] # Last point is same as first
         # Compute oriented vertices in ambient space
         if nd == 2:
             plane = None
-            vertices_nd = vertices
+            vertices_emb = vertices
         else:
-            vertices_nd = plane.reverse_embed(vertices)
+            vertices_emb = plane.reverse_embed(vertices)
         # Instance vars
         self.vertices = vertices
         self.plane = plane
-        self.vertices_nd = vertices_nd
+        super().__init__(vertices_emb)
 
     def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
@@ -267,12 +271,6 @@ class PlanarPolygon:
             # return inner.sum(axis=0) / 24
         else:
             raise ValueError('moment calculation not implemented for n > 2')
-        
-    def area(self) -> float:
-        '''
-        Calculate area of polygon.
-        '''
-        return self.nth_moment(0)
 
     def circular_radius(self) -> float:
         '''
@@ -302,12 +300,6 @@ class PlanarPolygon:
         S = self.nth_moment(2)
         _, V = la.eigh(S)
         return V[:, 0], V[:, 1]
-
-    def centroid(self) -> np.ndarray:
-        '''
-        Calculate first normalized moment (center of mass) of polygon.
-        '''
-        return self.nth_moment(1) / self.area()
 
     def covariance_matrix(self) -> np.ndarray:
         '''
@@ -506,7 +498,7 @@ class PlanarPolygon:
         return PlanarPolygon(vertices)
 
     def copy(self) -> 'PlanarPolygon':
-        return PlanarPolygon(self.vertices.copy())
+        return PlanarPolygon(self.vertices.copy(), check=False) # Assume I am already valid
     
     def transform(self, A: np.ndarray, center: np.ndarray=None) -> 'PlanarPolygon':
         '''
@@ -524,10 +516,6 @@ class PlanarPolygon:
     def center(self) -> 'PlanarPolygon':
         ''' Center polygon at origin '''
         return self - self.centroid()
-    
-    def save(self, path: str) -> None:
-        ''' Save polygon to file '''
-        np.save(path, self.vertices)
 
     def intersects(self, other: 'PlanarPolygon') -> bool:
         ''' Check if two polygons intersect '''
@@ -573,7 +561,7 @@ class PlanarPolygon:
         return ia / ua
 
     def bounding_box(self) -> Tuple[float, float, float, float]:
-        ''' Bounding box of polygon '''
+        ''' Bounding box of polygon in format (xmin, ymin, xmax, ymax) '''
         return self.to_shapely().bounds
 
     def contains(self, x: np.ndarray) -> bool:
@@ -586,14 +574,27 @@ class PlanarPolygon:
     def hullify(self) -> 'PlanarPolygon':
         return PlanarPolygon.from_pointcloud(self.vertices)
     
-    @property
-    def n(self) -> int:
-        return self.vertices.shape[0]
+    def simplify(self, eps: float, use_arclen: bool=True) -> 'PlanarPolygon':
+        '''
+        Simplify polygon using RDP algorithm
+        '''
+        assert eps >= 0
+        if eps == 0:
+            return self.copy()
+        else:
+            if use_arclen:
+                eps *= self.perimeter()
+            # pdb.set_trace()
+            vertices = cv2.approxPolyDP(self.vertices.astype(np.float32), eps, True).reshape(-1, 2)
+            return PlanarPolygon(vertices, check=False) # Assume cv2 produces valid output
+
+    def diameter(self) -> float:
+        ''' Diameter of polygon '''
+        return pdist(self.vertices).max()
     
-    @property
-    def ndim(self) -> int:
-        ''' Dimension of ambient space '''
-        return self.vertices_nd.shape[1]
+    def apply_affine(self, T: np.ndarray) -> 'PlanarPolygon':
+        vertices = self.vertices @ T[:2, :2].T + T[:2, 2]
+        return PlanarPolygon(vertices, check=False)
 
     @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':
@@ -714,11 +715,11 @@ class PlanarPolygon:
         return c * np.eye(2)
     
     @staticmethod
-    def trace_m2_ngon(n: int, r: float=1) -> float:
-        ''' Quantization energy density of a tessellation made of regular n-gons '''
-        assert n in [3, 4, 6], 'n must be 3, 4, or 6'
+    def trace_M2_ngon(n: int, r: float=1, standardized: bool=True) -> float:
+        ''' Quantization energy of a regular n-gon '''
         e = np.trace(PlanarPolygon.second_moment_ngon(n, r))
-        e /= (PlanarPolygon.area_ngon(n, r) ** 2)
+        if standardized:
+            e /= (PlanarPolygon.area_ngon(n, r) ** 2)
         return e
     
     @staticmethod
@@ -731,6 +732,16 @@ class PlanarPolygon:
         w, h = wh
         return PlanarPolygon(np.array([[x - w, y - h], [x + w, y - h], [x + w, y + h], [x - w, y + h]]))
 
+    @staticmethod
+    def voronoi_flat_torus(pts: np.ndarray) -> List['PlanarPolygon']:
+        verts, regions = voronoi_flat_torus(pts)
+        return [PlanarPolygon(verts[region]) for region in regions]
+
+    @staticmethod
+    def poisson_voronoi_flat_torus(lam: float) -> List['PlanarPolygon']:
+        n = np.random.poisson(lam)
+        pts = np.random.uniform(0, 1, (n, 2))
+        return PlanarPolygon.voronoi_flat_torus(pts)
 
 '''
 Utility functions
