@@ -22,10 +22,7 @@ class Surface(ABC):
 
 class SurfacePolygon(ABC):
     '''
-    Polygon represented by vertices on a 2D surface, 
-    connected by geodesics on that surface.
-    The main purpose of this class is to provide methods to compute the 
-    nth moments of the surface area of this polygon.
+    Polygon represented by vertices on a 2D surface, connected by geodesics on that surface.
     '''
     def __init__(self, vertices_nd: np.ndarray, surface: Optional[Surface]=None):
         '''

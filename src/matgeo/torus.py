@@ -70,6 +70,7 @@ def pdists_td(xs: np.ndarray) -> np.ndarray:
 
 def voronoi_flat_torus(pts: np.ndarray) -> Tuple[np.ndarray, list]:
     '''
+    #TODO: use CGAL instead
     Voronoi tessellation on flat torus [0, 1)^2. Returns:
     - Vertices to render
     - Regions to render (1-1 with input points)
