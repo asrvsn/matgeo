@@ -18,7 +18,7 @@ import shapely.geometry
 import cv2
 
 from .surface import *
-from .voronoi import poly_bounded_voronoi, voronoi_flat_torus
+from .voronoi import poly_bounded_voronoi
 from .utils.poly import to_simple_polygons
 
 class Plane(Surface):
@@ -180,9 +180,10 @@ class Plane(Surface):
         ''' YZ plane in 3D '''
         return Plane(np.array([1,0,0]), np.array([0,0,0]))
 
-class PlanarPolygon(SurfacePolygon):
+class PlanarPolygon(Surface, SurfacePolygon):
     '''
     Planar representation of coplanar polygonal points in d >= 2 dimensions.
+    A polygon can be both a surface (manifold with boundary) and a polygon on a plane.
     '''
     def __init__(self, 
             vertices: np.ndarray, 
@@ -223,13 +224,12 @@ class PlanarPolygon(SurfacePolygon):
         # Compute oriented vertices in ambient space
         if nd == 2:
             plane = None
-            vertices_emb = vertices
+            vertices_nd = vertices
         else:
-            vertices_emb = plane.reverse_embed(vertices)
+            vertices_nd = plane.reverse_embed(vertices)
         # Instance vars
         self.vertices = vertices
-        self.plane = plane
-        super().__init__(vertices_emb)
+        super().__init__(vertices_nd, surface=plane)
 
     def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
@@ -423,8 +423,9 @@ class PlanarPolygon(SurfacePolygon):
         '''
         return np.trace(self.nth_moment(2, center=center, standardized=standardized))
     
-    def voronoi_tessellation(self, xs: np.ndarray, interior: bool=False, **kwargs) -> Tuple[List['PlanarPolygon'], np.ndarray]:
+    def voronoi_tessellate(self, xs: np.ndarray, interior: bool=False, **kwargs) -> 'PolygonPartition':
         '''
+        #TODO
         Voronoi tessellation of the region bounded by this polygon containing given points
         '''
         assert xs.ndim == 2
@@ -732,16 +733,8 @@ class PlanarPolygon(SurfacePolygon):
         w, h = wh
         return PlanarPolygon(np.array([[x - w, y - h], [x + w, y - h], [x + w, y + h], [x - w, y + h]]))
 
-    @staticmethod
-    def voronoi_flat_torus(pts: np.ndarray) -> List['PlanarPolygon']:
-        verts, regions = voronoi_flat_torus(pts)
-        return [PlanarPolygon(verts[region]) for region in regions]
-
-    @staticmethod
-    def poisson_voronoi_flat_torus(lam: float) -> List['PlanarPolygon']:
-        n = np.random.poisson(lam)
-        pts = np.random.uniform(0, 1, (n, 2))
-        return PlanarPolygon.voronoi_flat_torus(pts)
+class PolygonPartition(SurfacePartition):
+    pass
 
 '''
 Utility functions

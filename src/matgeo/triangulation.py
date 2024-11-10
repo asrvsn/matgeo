@@ -21,6 +21,7 @@ from compas_cgal.reconstruction import poisson_surface_reconstruction, advancing
 from compas_cgal.triangulation import periodic_delaunay_triangulation
 from collections import defaultdict
 
+from .surface import *
 from .plane import Plane, PlanarPolygon
 from .parallel import parallel_farm_array
 
@@ -31,7 +32,7 @@ Classes
 Incidence = Dict[int, List[int]]
 Edges = Set[frozenset]
 
-class Triangulation:
+class Triangulation(Surface) :
 
     def __init__(self, pts: np.ndarray, simplices: np.ndarray):
         '''

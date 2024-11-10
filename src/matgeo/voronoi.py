@@ -269,35 +269,6 @@ def poly_bounded_voronoi(pts: np.ndarray, boundary: Polygon, filter_pts: bool=Tr
     # 		alpha=0.4)
     # plt.show()
 
-def voronoi_flat_torus(pts: np.ndarray) -> Tuple[np.ndarray, list]:
-    '''
-    Voronoi tessellation on flat torus [0, 1)^2. Returns:
-    - Vertices to render
-    - Regions to render (1-1 with input points)
-    # - Translates points to [0, 1)^2
-    '''
-    assert pts.ndim == 2
-    assert pts.shape[1] == 2
-    N = pts.shape[0]
-    # pts -= np.min(pts, axis=0)
-    assert (pts.min() >= 0).all() and (pts.max() < 1).all(), 'Could not translate points to [0, 1)^2'
-    pts_ext = np.concatenate([
-        pts,
-        pts + np.array([1, 0]),
-        pts + np.array([0, 1]),
-        pts + np.array([1, 1]),
-        pts + np.array([-1, 0]),
-        pts + np.array([0, -1]),
-        pts + np.array([-1, -1]),
-        pts + np.array([1, -1]),
-        pts + np.array([-1, 1]),
-    ], axis=0)
-    
-    vor = Voronoi(pts_ext)
-    # Get regions corresponding to original points
-    regions = [vor.regions[vor.point_region[i]] for i in range(N)]
-    return vor.vertices, regions
-
 ## Slow / stupid version
 # def voronoi_flat_torus(pts: np.ndarray) -> Tuple[np.ndarray, list, np.ndarray]:
 #     '''

@@ -2,10 +2,23 @@
 Surfaces and objects on surfaces
 '''
 from abc import ABC, abstractmethod
+from typing import Optional, Tuple
 import numpy as np
 
 class Surface(ABC):
-    pass
+    '''
+    Surface embedded in ambient Euclidean d-dimensional space
+    '''
+    @property
+    @abstractmethod
+    def ndim(self) -> int:
+        ''' Dimension of ambient space '''
+        pass
+
+    @abstractmethod
+    def voronoi_tessellate(self, pts: np.ndarray) -> 'SurfacePartition':
+        ''' Compute the geodesic Voronoi tessellation '''
+        pass
 
 class SurfacePolygon(ABC):
     '''
@@ -14,24 +27,31 @@ class SurfacePolygon(ABC):
     The main purpose of this class is to provide methods to compute the 
     nth moments of the surface area of this polygon.
     '''
-    def __init__(self, vertices_emb: np.ndarray):
+    def __init__(self, vertices_nd: np.ndarray, surface: Optional[Surface]=None):
         '''
         vertices: embedded coordinates of surface in d-dimensional space
         '''
-        self.vertices_emb = vertices_emb
+        if not (surface is None):
+            assert surface.ndim >= 3 # If surface is provided, it must be at least ambient 3D
+        self.vertices_nd = vertices_nd
+        self.surface = surface
 
     @property
     def n(self) -> int:
-        return self.vertices_emb.shape[0]
+        return self.vertices_nd.shape[0]
     
     @property
     def ndim(self) -> int:
         ''' Dimension of ambient space '''
-        return self.vertices_emb.shape[1]
+        return self.vertices_nd.shape[1]
     
     def save(self, path: str) -> None:
         ''' Save polygon to file '''
-        np.save(path, self.vertices_emb)
+        np.save(path, self.vertices_nd)
+
+    @abstractmethod
+    def load(self, path: str) -> 'SurfacePolygon':
+        pass
 
     @abstractmethod
     def nth_moment(self, n: int, center=None, standardized: bool=False):
@@ -42,13 +62,36 @@ class SurfacePolygon(ABC):
         pass
 
     def area(self) -> float:
-        '''
-        Calculate area of polygon.
-        '''
         return self.nth_moment(0)
-    
+
     def centroid(self) -> np.ndarray:
-        '''
-        Calculate first normalized moment (center of mass) of polygon.
-        '''
         return self.nth_moment(1) / self.area()
+    
+class SurfacePartition(ABC):
+    def __init__(self, surface: Surface, vertices_nd: np.ndarray, partitions: np.ndarray, seeds_nd: np.ndarray):
+        '''
+        vertices_nd: embedded coordinates of surface in d-dimensional space
+        partitions: indices of vertices in each partition (representing a SurfacePolygon)
+        seeds_nd: dual of the tessellation, in some sense
+        '''
+        self.surface = surface
+        self.vertices_nd = vertices_nd
+        self.partitions = partitions
+        self.seeds_nd = seeds_nd
+
+    @abstractmethod
+    def grad_2nd_moment(self) -> Tuple[np.ndarray, np.ndarray]:
+        '''
+        Compute gradient of the second-moment functional
+
+        \sum_i \int_{D_i} d_g(x, x_i)^2 dx 
+        
+        where d_g(x, x_i) is the geodesic distance from x to x_i,
+        D_i are surface polygons defined by self.vertices_nd, and
+        x_i are self.seeds_nd
+        
+        Returns:
+        (1) gradient with respect to self.vertices_nd
+        (2) gradient with respect to self.seeds_nd
+        '''
+        pass
