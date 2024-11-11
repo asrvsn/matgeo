@@ -151,6 +151,9 @@ class Plane(Surface):
         c = self.v @ self.n / self.n[1]
         return m, c
 
+    def voronoi_tessellate(self, pts):
+        raise NotImplementedError
+
     @property
     def ndim(self) -> int:
         '''
@@ -180,7 +183,7 @@ class Plane(Surface):
         ''' YZ plane in 3D '''
         return Plane(np.array([1,0,0]), np.array([0,0,0]))
 
-class PlanarPolygon(Surface, SurfacePolygon):
+class PlanarPolygon(SurfacePolygon, Surface):
     '''
     Planar representation of coplanar polygonal points in d >= 2 dimensions.
     A polygon can be both a surface (manifold with boundary) and a polygon on a plane.

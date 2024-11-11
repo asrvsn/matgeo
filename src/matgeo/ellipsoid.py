@@ -399,6 +399,9 @@ class Ellipsoid(Surface):
         assert np.count_nonzero(self.M - np.diag(np.diagonal(self.M))) == 0, 'Ellipse must be aligned so M is diagonal'
         return 1 / np.sqrt(np.diagonal(self.M))
         
+    def voronoi_tessellate(self, pts):
+        raise NotImplementedError
+        
     @staticmethod
     def from_poly(poly: PlanarPolygon, equiarea: bool=True) -> 'Ellipsoid':
         v = poly.centroid()
