@@ -2,7 +2,7 @@
 Surfaces and objects on surfaces
 '''
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import numpy as np
 
 class Surface(ABC):
@@ -24,9 +24,10 @@ class SurfacePolygon(ABC):
     '''
     Polygon represented by vertices on a 2D surface, connected by geodesics on that surface.
     '''
-    def __init__(self, vertices_nd: np.ndarray, surface: Optional[Surface]=None):
+    def __init__(self, vertices_nd: np.ndarray, surface: Optional[Surface]=None, check: bool=True):
         '''
         vertices: embedded coordinates of surface in d-dimensional space
+        check: whether to check validity of the vertices
         '''
         if not (surface is None):
             assert surface.ndim >= 3 # If surface is provided, it must be at least ambient 3D
@@ -70,16 +71,25 @@ class SurfacePartition(ABC):
         vertices_nd: embedded coordinates of surface in d-dimensional space
         partitions: indices of vertices in each partition (representing a SurfacePolygon)
         seeds_nd: dual of the tessellation, in some sense
+
+        It's assumed the vertices form valid polygons.
         '''
+        assert len(partitions) == len(seeds_nd)
         self.surface = surface
         self.vertices_nd = vertices_nd
         self.partitions = partitions
         self.seeds_nd = seeds_nd
 
+    # @abstractmethod
+    # def grad_area(self) -> np.ndarray:
+    #     '''
+    #     Compute (covariant) gradient of the (surface) area with respect to the polygon 
+    #     '''
+
     @abstractmethod
-    def grad_2nd_moment(self) -> Tuple[np.ndarray, np.ndarray]:
+    def grad_second_moment(self) -> Tuple[np.ndarray, np.ndarray]:
         '''
-        Compute gradient of the second-moment functional
+        Compute (covariant) gradient of the second-moment functional
 
         \sum_i \int_{D_i} d_g(x, x_i)^2 dx 
         
@@ -90,5 +100,13 @@ class SurfacePartition(ABC):
         Returns:
         (1) gradient with respect to self.vertices_nd
         (2) gradient with respect to self.seeds_nd
+        '''
+        pass
+
+    @property
+    @abstractmethod
+    def polygons(self) -> List[SurfacePolygon]:
+        '''
+        Convert the partition indices into polygons
         '''
         pass

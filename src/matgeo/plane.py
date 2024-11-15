@@ -8,14 +8,16 @@ import cvxpy as cp
 import numpy.linalg as la
 import scipy.optimize as scopt
 from shapely import Polygon
-from shapely.geometry.polygon import orient
+from shapely.geometry.polygon import orient as shapely_orient
 from shapely.validation import explain_validity
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, Voronoi
 from scipy.spatial.distance import pdist
 import pdb
 import shapely
 import shapely.geometry
 import cv2
+import jax.numpy as jnp
+import jax
 
 from .surface import *
 from .voronoi import poly_bounded_voronoi
@@ -151,8 +153,17 @@ class Plane(Surface):
         c = self.v @ self.n / self.n[1]
         return m, c
 
-    def voronoi_tessellate(self, pts):
-        raise NotImplementedError
+    def voronoi_tessellate(self, seeds: np.ndarray) -> 'PlanePartition':
+        pts = seeds
+        if pts.shape[1] > 2:
+            assert pts.shape[1] == self.ndim, f'Points must be in same dimension as plane'
+            pts = self.embed(pts)
+        vor = Voronoi(pts)
+        partitions = [r for r in vor.regions if len(r) > 0 and not (-1 in r)]
+        vertices = self.reverse_embed(vor.vertices)
+        return PlanePartition(
+            self, vertices, partitions, seeds
+        )
 
     @property
     def ndim(self) -> int:
@@ -182,6 +193,13 @@ class Plane(Surface):
     def YZ() -> 'Plane':
         ''' YZ plane in 3D '''
         return Plane(np.array([1,0,0]), np.array([0,0,0]))
+    
+class PlanePartition(SurfacePartition):
+    def grad_second_moment(self):
+        raise NotImplementedError
+
+    def polygons(self):
+        return [PlanarPolygon(v, plane=self.surface, check=False) for v in self.vertices_nd]
 
 class PlanarPolygon(SurfacePolygon, Surface):
     '''
@@ -221,8 +239,9 @@ class PlanarPolygon(SurfacePolygon, Surface):
                         poly = max(poly.geoms, key=lambda x: x.area)
                     assert type(poly) == shapely.geometry.Polygon
                 assert poly.is_valid, 'Polygon is invalid, reason:\n' + explain_validity(poly)
+                assert len(poly.exterior.coords) > 3, 'Polygon must have at least 3 vertices'
             # Orient the polygon vertices CCW in 2D
-            poly = orient(poly, sign=1)
+            poly = shapely_orient(poly, sign=1)
             vertices = np.array(poly.exterior.coords)[:-1] # Last point is same as first
         # Compute oriented vertices in ambient space
         if nd == 2:
@@ -426,27 +445,24 @@ class PlanarPolygon(SurfacePolygon, Surface):
         '''
         return np.trace(self.nth_moment(2, center=center, standardized=standardized))
     
-    def voronoi_tessellate(self, xs: np.ndarray, interior: bool=False, **kwargs) -> 'PolygonPartition':
+    def voronoi_tessellate(self, xs: np.ndarray, interior: bool=False, **kwargs) -> 'PlanarPolygonPartition':
         '''
-        #TODO
         Voronoi tessellation of the region bounded by this polygon containing given points
         '''
         assert xs.ndim == 2
         assert xs.shape[1] == 2
-        vor_pts, vor_verts, vor_regions, on_bd = poly_bounded_voronoi(xs, self.to_shapely(), **kwargs)
-        polygons = [PlanarPolygon(vor_verts[region]) for region in vor_regions] # In bijection with xs    
+        seeds, vertices, partitions, on_bd = poly_bounded_voronoi(xs, self.to_shapely(), **kwargs)
         if interior:
-            polygons = [p for p, on in zip(polygons, on_bd) if not on]
-            return vor_pts[~on_bd], polygons
-        else:
-            return vor_pts, polygons, on_bd
+            seeds = seeds[~on_bd]
+            partitions = partitions[~on_bd]
+        return PlanarPolygonPartition(self, vertices, partitions, seeds)
     
     def voronoi_quantization_energy(self, xs: np.ndarray, standardized: bool=False) -> float:
         '''
         Quantizer energy of the Voronoi tessellation (contained within self) of a set of points
         Dimensionless energy computed as in eq. (45), https://journals.aps.org/pre/pdf/10.1103/PhysRevE.82.056109
         '''
-        polygons = self.voronoi_tessellation(xs)
+        polygons = self.voronoi_tessellate(xs).polygons
         e = sum([p.trace_M2(x, standardized=False) for p, x in zip(polygons, xs)])
         if standardized:
             e /= xs.shape[0]
@@ -736,8 +752,16 @@ class PlanarPolygon(SurfacePolygon, Surface):
         w, h = wh
         return PlanarPolygon(np.array([[x - w, y - h], [x + w, y - h], [x + w, y + h], [x - w, y + h]]))
 
-class PolygonPartition(SurfacePartition):
-    pass
+class PlanarPolygonPartition(SurfacePartition):
+    def __init__(self, surface: PlanarPolygon, vertices_nd: np.ndarray, partitions: np.ndarray, seeds_nd: np.ndarray):
+        super().__init__(surface, vertices_nd, partitions, seeds_nd)
+
+    def grad_second_moment(self) -> Tuple[np.ndarray, np.ndarray]:
+        raise NotImplementedError
+    
+    @property 
+    def polygons(self) -> List[PlanarPolygon]:
+        return [PlanarPolygon(self.vertices_nd[p], plane=self.surface.surface, check=False) for p in self.partitions]
 
 '''
 Utility functions
@@ -770,6 +794,35 @@ def sqrt_pd(Sigma: np.ndarray) -> np.ndarray:
     '''
     U, L, _ = la.svd(Sigma)
     return U @ np.diag(np.sqrt(L)) @ U.T
+
+def polygon_area_unjitted(X: np.ndarray) -> float:
+    '''
+    Area of polygon using JAX
+    '''
+    X_ = jnp.roll(X, -1, axis=0)
+    X_cross = jnp.cross(X, X_)
+    return jnp.sum(X_cross) / 2
+
+polygon_area = jax.jit(polygon_area_unjitted)
+grad_polygon_area = jax.jit(jax.grad(polygon_area_unjitted))
+
+def polygon_second_moment_unjitted(X: np.ndarray, o: np.ndarray) -> np.ndarray:
+    '''
+    Trace second moment of polygon with respect to origin
+    '''
+    X = X - o
+    X_ = jnp.roll(X, -1, axis=0)
+    X_cross = jnp.cross(X, X_)
+    x, y = X.T
+    x_, y_ = X_.T
+    I_xx = X_cross @ (x**2 + x*x_ + x_**2) / 12
+    I_yy = X_cross @ (y**2 + y*y_ + y_**2) / 12
+    return I_xx + I_yy
+
+polygon_second_moment = jax.jit(polygon_second_moment_unjitted)
+
+grad_polygon_second_moment_vertices = jax.jit(jax.grad(polygon_second_moment_unjitted, argnums=0))
+grad_polygon_second_moment_origin = jax.jit(jax.grad(polygon_second_moment_unjitted, argnums=1))
 
 if __name__ == '__main__':
     import random

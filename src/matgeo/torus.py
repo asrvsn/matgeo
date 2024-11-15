@@ -8,7 +8,7 @@ from scipy.spatial.distance import cdist, pdist
 from .surface import *
 from .plane import *
 
-class SquareTorus(Surface):
+class Torus(Surface):
     '''
     Periodic unit square R^2 / Z^2
     '''
@@ -16,21 +16,29 @@ class SquareTorus(Surface):
     def ndim(self) -> int:
         return 2
 
-    def voronoi_tessellate(self, pts: np.ndarray) -> 'SquareTorusPartition':
+    def voronoi_tessellate(self, pts: np.ndarray) -> 'TorusPartition':
         verts, regions = voronoi_flat_torus(pts)
         return [PlanarPolygon(verts[region]) for region in regions]
     
-    def poisson_voronoi_tessellate(self, lam: float) -> 'SquareTorusPartition':
-        n = np.random.poisson(lam)
-        pts = np.random.uniform(0, 1, (n, 2))
+    def poisson_voronoi_tessellate(self, lam: float, rng=np.random.default_rng()) -> 'TorusPartition':
+        n = rng.poisson(lam)
+        pts = rng.uniform(0, 1, (n, 2))
         return self.voronoi_tessellate(pts)
 
-class SquareTorusPolygon(PlanarPolygon):
+class TorusPolygon(PlanarPolygon):
     pass
 
-class SquareTorusPartition(SurfacePartition):
-    pass
-
+class TorusPartition(SurfacePartition):
+    def grad_second_moment(self) -> Tuple[np.ndarray, np.ndarray]:
+        # TODO faster loop?
+        grad_verts = np.zeros_like(self.vertices_nd)
+        grad_seeds = np.zeros_like(self.seeds_nd)
+        for i, (partition, seed) in enumerate(zip(self.partitions, self.seeds_nd)):
+            vertices = self.vertices_nd[partition]
+            grad_verts[partition] += grad_polygon_second_moment_vertices(vertices, seed)
+            grad_seeds[i] = grad_polygon_second_moment_origin(vertices, seed)
+        return grad_verts, grad_seeds
+            
 '''
 Helper functions
 '''
