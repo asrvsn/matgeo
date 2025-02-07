@@ -6,7 +6,7 @@ import os
 import numpy as np
 from numpy.linalg import norm
 from typing import Tuple, List, Dict, Set
-from scipy.spatial import ConvexHull, KDTree
+from scipy.spatial import ConvexHull, KDTree, Delaunay
 from scipy.spatial.distance import cdist
 import pdb
 from tqdm import tqdm
@@ -18,7 +18,7 @@ import pickle
 import alphashape
 import CGAL
 from compas_cgal.reconstruction import poisson_surface_reconstruction, advancing_front_surface_reconstruction
-from compas_cgal.triangulation import periodic_delaunay_triangulation
+from compas_cgal.triangulation import periodic_delaunay_triangulation, constrained_delaunay_triangulation
 from collections import defaultdict
 
 from .surface import *
@@ -394,6 +394,9 @@ class Triangulation(Surface) :
         if np.dot(i_normal, j_normal) < 0:
             self.flip_orientation()
 
+    def voronoi_tessellate(self, pts):
+        raise NotImplementedError
+
     def export(self, folder: str, name: str):
         '''
         Export the triangulation as (vertices, triangles) 
@@ -438,6 +441,16 @@ class Triangulation(Surface) :
     # @staticmethod
     # def periodic_delaunay_grad(pts: np.ndarray, box: np.ndarray) -> np.ndarray:
 
+    @staticmethod
+    def from_polygon(poly: PlanarPolygon, z: float) -> 'Triangulation':
+        '''
+        Use constrained delaunay triangulation to extract a triangulation from a polygon
+        Ensures consistent orientation of simplices so normals are in positive z direction.
+        '''
+        assert poly.ndim == 2, 'Unclear how to orient polygon in higher dimensions'
+        simplices = Delaunay(poly.vertices).simplices # TODO: use constrained delaunay
+        vertices = np.hstack((poly.vertices, np.full((poly.vertices.shape[0], 1), z)))
+        return Triangulation(vertices, simplices)
 
 class FaceTriangulation(Triangulation):
 

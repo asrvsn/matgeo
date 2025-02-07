@@ -117,7 +117,11 @@ class Ellipsoid(Surface):
         return X
 
     def project_l2(self, X: np.ndarray, tol=1e-3, batch=10) -> np.ndarray:
-        ''' Project points onto the ellipsoid with minimum l2 distance using SLSQP '''
+        ''' Project points onto the ellipsoid with minimum l2 distance using SLSQP 
+        # TODO: try 
+        # Orthogonal projection of a point onto an ellipse (2D) or ellipsoid (3D)
+        # https://github.com/nedelec/Orthogonal-Projection-on-Ellipsoid
+        '''
         assert X.ndim == 2, 'X must be 2d'
         assert X.shape[1] == self.ndim, 'X must have same dimension as ellipsoid'
         n = X.shape[0]

@@ -15,11 +15,17 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
 ]
 dependencies = [
-    numpy,
-    scipy,
-    matplotlib,
-    microseg,
-    matgeo
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "shapely",
+    "tqdm",
+    "potpourri3d",
+    "openmesh",
+    "joblib",
+    "multiprocessing",
+    "alphashape",
+    "CGAL",
 ]
 
 [project.urls]
