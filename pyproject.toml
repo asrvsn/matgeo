@@ -23,7 +23,6 @@ dependencies = [
     "potpourri3d",
     "openmesh",
     "joblib",
-    "multiprocessing",
     "alphashape",
     "CGAL",
 ]
