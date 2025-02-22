@@ -1,6 +1,5 @@
 {
   "dependencies": [
-    "boost",
     "cgal",
     "python3",
     "nanobind"

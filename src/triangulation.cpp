@@ -14,6 +14,36 @@ namespace nb = nanobind;
 using vertices_array = nb::ndarray<nb::numpy, double, nb::ndim<2>>;
 using faces_array = nb::ndarray<nb::numpy, int, nb::ndim<2>>;
 
+// This class builds a mesh incrementally during surface reconstruction:
+// 1. Constructor adds vertices to the mesh
+// 2. Assignment operator adds faces using vertex indices
+struct MeshBuilder {
+    Mesh& mesh;
+    
+    template <typename PointIterator>
+    MeshBuilder(Mesh& mesh, PointIterator b, PointIterator e)
+        : mesh(mesh)
+    {
+        for(; b != e; ++b) {
+            mesh.add_vertex(*b);
+        }
+    }
+    
+    MeshBuilder& operator=(const std::array<std::size_t, 3>& f) {
+        mesh.add_face(
+            vertex_descriptor(static_cast<std::size_t>(f[0])),
+            vertex_descriptor(static_cast<std::size_t>(f[1])),
+            vertex_descriptor(static_cast<std::size_t>(f[2]))
+        );
+        return *this;
+    }
+    
+    // Iterator interface required by CGAL
+    MeshBuilder& operator*() { return *this; }
+    MeshBuilder& operator++() { return *this; }
+    MeshBuilder operator++(int) { return *this; }
+};
+
 std::tuple<vertices_array, faces_array>
 mesh_to_vertices_and_faces(const Mesh& mesh) {
     size_t n_vertices = mesh.number_of_vertices();
@@ -103,12 +133,13 @@ advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array)
         }
     }
 
-    // Perform reconstruction
     Mesh mesh;
+    MeshBuilder builder(mesh, cgal_points.begin(), cgal_points.end());
+    
     CGAL::advancing_front_surface_reconstruction(
         cgal_points.begin(),
         cgal_points.end(),
-        mesh);
+        builder);
 
     return mesh_to_vertices_and_faces(mesh);
 }

@@ -97,18 +97,13 @@ message(STATUS "Found VORO: ${VOROPP_INCLUDE_DIRS} ${VOROPP_LIBRARIES}")
 target_include_directories(voronoi_cpp PRIVATE ${VOROPP_INCLUDE_DIRS})
 target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
 
-## Boost 
-set(Boost_USE_STATIC_LIBS ON)
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_RUNTIME OFF)
-find_package(Boost REQUIRED COMPONENTS system program_options)
-
 ## CGAL 
 find_package(CGAL REQUIRED)
 
 # Dependencies
 add_dependencies(voronoi_cpp voro++)
 target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS})
+target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL)
 
 # Install directive for scikit-build-core
 install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
