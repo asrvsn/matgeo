@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.20...3.26)
 
+# Include vcpkg toolchain if VCPKG_ROOT is defined
+if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING "")
+    message(STATUS "Using vcpkg toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 project(matgeo LANGUAGES CXX)
 
 if (NOT SKBUILD)
@@ -26,7 +33,7 @@ if (NOT SKBUILD)
 endif()
 
 # Try to import all Python components potentially needed by nanobind
-find_package(Python 3.8
+find_package(Python 3.10
   REQUIRED COMPONENTS Interpreter Development.Module
   OPTIONAL_COMPONENTS Development.SABIModule)
 
@@ -90,44 +97,17 @@ message(STATUS "Found VORO: ${VOROPP_INCLUDE_DIRS} ${VOROPP_LIBRARIES}")
 target_include_directories(voronoi_cpp PRIVATE ${VOROPP_INCLUDE_DIRS})
 target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
 
-## Boost (moved before CGAL)
-find_package(Boost QUIET)
-if(Boost_FOUND)
-    message(STATUS "Found system Boost: ${Boost_INCLUDE_DIRS}")
-else()
-    message(STATUS "System Boost not found. Building from source...")
-    ExternalProject_Add(boost
-        URL https://github.com/boostorg/boost/archive/refs/tags/boost-1.87.0.tar.gz
-        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-                -DBOOST_INCLUDE_LIBRARIES=headers
-                -DBOOST_ENABLE_CMAKE=ON
-        CMAKE_GENERATOR "Unix Makefiles"
-        UPDATE_COMMAND ""
-    )
-    ExternalProject_get_property(boost INSTALL_DIR)
-    set(Boost_INCLUDE_DIRS ${INSTALL_DIR}/include)
-endif()
+## Boost 
+set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+find_package(Boost REQUIRED COMPONENTS system program_options)
 
-## CGAL (now after Boost)
-ExternalProject_Add(cgal
-    URL https://github.com/CGAL/cgal/releases/download/v6.0.1/CGAL-6.0.1.tar.xz
-    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-            -DCMAKE_BUILD_TYPE=Release
-            -DCGAL_HEADER_ONLY=ON
-            -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS}  # Add Boost include path to CGAL
-    CMAKE_GENERATOR "Unix Makefiles"
-    BUILD_COMMAND ""  # Using header-only version
-    UPDATE_COMMAND ""
-)
-ExternalProject_get_property(cgal INSTALL_DIR)
-set(CGAL_INCLUDE_DIRS ${INSTALL_DIR}/include)
+## CGAL 
+find_package(CGAL REQUIRED)
 
 # Dependencies
 add_dependencies(voronoi_cpp voro++)
-if(NOT Boost_FOUND)
-    add_dependencies(cgal boost)  # Make CGAL wait for Boost if we're building it
-endif()
-add_dependencies(triangulation_cpp cgal)
 target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS})
 
 # Install directive for scikit-build-core

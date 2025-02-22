@@ -11,7 +11,61 @@ typedef Mesh::Vertex_index vertex_descriptor;
 
 namespace nb = nanobind;
 
-std::tuple<nb::ndarray<double>, nb::ndarray<int>>
+using vertices_array = nb::ndarray<nb::numpy, double, nb::ndim<2>>;
+using faces_array = nb::ndarray<nb::numpy, int, nb::ndim<2>>;
+
+std::tuple<vertices_array, faces_array>
+mesh_to_vertices_and_faces(const Mesh& mesh) {
+    size_t n_vertices = mesh.number_of_vertices();
+    size_t n_faces = mesh.number_of_faces();
+    
+    // Allocate raw arrays
+    double* vertices_data = new double[n_vertices * 3];
+    int* faces_data = new int[n_faces * 3];
+
+    // Create memory management capsules
+    nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
+        delete[] (double *) p;
+    });
+    nb::capsule faces_owner(faces_data, [](void *p) noexcept {
+        delete[] (int *) p;
+    });
+
+    // Fill vertices directly using vertex indices
+    for (const auto& v : mesh.vertices()) {
+        const Point& p = mesh.point(v);
+        size_t idx = v.idx();  // Use built-in index
+        vertices_data[idx * 3] = p.x();
+        vertices_data[idx * 3 + 1] = p.y();
+        vertices_data[idx * 3 + 2] = p.z();
+    }
+
+    // Fill faces using vertex indices
+    for (const auto& f : mesh.faces()) {
+        size_t face_idx = f.idx();
+        int i = 0;
+        for (vertex_descriptor v : vertices_around_face(mesh.halfedge(f), mesh)) {
+            faces_data[face_idx * 3 + i] = static_cast<int>(v.idx());
+            i++;
+        }
+    }
+
+    // Create nanobind arrays from the raw data
+    auto vertices = nb::ndarray<nb::numpy, double, nb::ndim<2>>(
+        vertices_data,
+        { n_vertices, 3 },
+        vertices_owner
+    );
+    auto faces = nb::ndarray<nb::numpy, int, nb::ndim<2>>(
+        faces_data,
+        { n_faces, 3 },
+        faces_owner
+    );
+
+    return std::make_tuple(vertices, faces);
+}
+
+std::tuple<vertices_array, faces_array>
 advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array) 
 {
     // Validate input
@@ -34,17 +88,17 @@ advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array)
     if (dim == 3) {
         for (size_t i = 0; i < n_points; i++) {
             cgal_points.emplace_back(
-                data[i * 3],     // x
-                data[i * 3 + 1], // y
-                data[i * 3 + 2]  // z
+                data[i * 3],
+                data[i * 3 + 1],
+                data[i * 3 + 2]
             );
         }
     } else { // dim == 2
         for (size_t i = 0; i < n_points; i++) {
             cgal_points.emplace_back(
-                data[i * 2],     // x
-                data[i * 2 + 1], // y
-                0.0             // z = 0 for 2D input
+                data[i * 2],
+                data[i * 2 + 1],
+                0.0
             );
         }
     }
@@ -56,43 +110,7 @@ advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array)
         cgal_points.end(),
         mesh);
 
-    // Create output arrays
-    size_t n_vertices = mesh.number_of_vertices();
-    size_t n_faces = mesh.number_of_faces();
-    
-    // Create output arrays with the correct shape and layout
-    std::vector<size_t> vertices_shape = {n_vertices, 3};
-    std::vector<size_t> faces_shape = {n_faces, 3};
-    
-    auto vertices = nb::ndarray<double>(vertices_shape);
-    auto faces = nb::ndarray<int>(faces_shape);
-
-    double* vertices_data = vertices.data();
-    int* faces_data = faces.data();
-
-    // Fill vertices
-    auto vertex_index = mesh.property_map<vertex_descriptor, std::size_t>("v:index").first;
-    for (const auto& v : mesh.vertices()) {
-        const Point& p = mesh.point(v);
-        size_t idx = vertex_index[v];
-        vertices_data[idx * 3] = p.x();
-        vertices_data[idx * 3 + 1] = p.y();
-        vertices_data[idx * 3 + 2] = p.z();
-    }
-
-    // Fill faces
-    size_t face_idx = 0;
-    for (const auto& f : mesh.faces()) {
-        CGAL::Vertex_around_face_circulator<Mesh> vcirc(mesh.halfedge(f), mesh);
-        size_t vertex_idx = 0;
-        do {
-            faces_data[face_idx * 3 + vertex_idx] = static_cast<int>(vertex_index[*vcirc]);
-            vertex_idx++;
-        } while (++vcirc != mesh.halfedge(f) && vertex_idx < 3);
-        face_idx++;
-    }
-
-    return std::make_tuple(vertices, faces);
+    return mesh_to_vertices_and_faces(mesh);
 }
 
 // Binding code
