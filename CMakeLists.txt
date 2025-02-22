@@ -36,7 +36,7 @@ find_package(nanobind CONFIG REQUIRED)
 # We are now ready to compile the actual extension module
 nanobind_add_module(
   # Name of the extension
-  vor_cpp
+  voronoi_cpp
   
   # Target the stable ABI for Python 3.12+, which reduces
   # the number of binary wheels that must be built. This
@@ -52,7 +52,14 @@ nanobind_add_module(
   NB_STATIC
   
   # Source code goes here
-  src/vor.cpp
+  src/voronoi.cpp
+  )
+
+nanobind_add_module(
+  triangulation_cpp
+  STABLE_ABI
+  NB_STATIC
+  src/triangulation.cpp
   )
 
 include(ExternalProject)
@@ -69,8 +76,7 @@ else()
 endif()
 
 ExternalProject_Add(voro++
-    URL http://math.lbl.gov/voro++/download/dir/voro++-0.4.6.tar.gz
-    URL_MD5 2338b824c3b7b25590e18e8df5d68af9
+    URL https://github.com/chr1shr/voro/archive/refs/tags/v0.4.6.tar.gz
     CONFIGURE_COMMAND "" 
     BUILD_COMMAND make ${VORO_BUILD_OPTIONS} 
     BUILD_IN_SOURCE 1 
@@ -81,9 +87,48 @@ ExternalProject_get_property(voro++ SOURCE_DIR)
 set(VOROPP_LIBRARIES ${SOURCE_DIR}/src/libvoro++.a)
 set(VOROPP_INCLUDE_DIRS ${SOURCE_DIR}/src)
 message(STATUS "Found VORO: ${VOROPP_INCLUDE_DIRS} ${VOROPP_LIBRARIES}")
-include_directories(${VOROPP_INCLUDE_DIRS})
-target_link_libraries(vor_cpp PRIVATE ${VOROPP_LIBRARIES})
-add_dependencies(vor_cpp voro++)
+target_include_directories(voronoi_cpp PRIVATE ${VOROPP_INCLUDE_DIRS})
+target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
+
+## Boost (moved before CGAL)
+find_package(Boost QUIET)
+if(Boost_FOUND)
+    message(STATUS "Found system Boost: ${Boost_INCLUDE_DIRS}")
+else()
+    message(STATUS "System Boost not found. Building from source...")
+    ExternalProject_Add(boost
+        URL https://github.com/boostorg/boost/archive/refs/tags/boost-1.87.0.tar.gz
+        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+                -DBOOST_INCLUDE_LIBRARIES=headers
+                -DBOOST_ENABLE_CMAKE=ON
+        CMAKE_GENERATOR "Unix Makefiles"
+        UPDATE_COMMAND ""
+    )
+    ExternalProject_get_property(boost INSTALL_DIR)
+    set(Boost_INCLUDE_DIRS ${INSTALL_DIR}/include)
+endif()
+
+## CGAL (now after Boost)
+ExternalProject_Add(cgal
+    URL https://github.com/CGAL/cgal/releases/download/v6.0.1/CGAL-6.0.1.tar.xz
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+            -DCMAKE_BUILD_TYPE=Release
+            -DCGAL_HEADER_ONLY=ON
+            -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS}  # Add Boost include path to CGAL
+    CMAKE_GENERATOR "Unix Makefiles"
+    BUILD_COMMAND ""  # Using header-only version
+    UPDATE_COMMAND ""
+)
+ExternalProject_get_property(cgal INSTALL_DIR)
+set(CGAL_INCLUDE_DIRS ${INSTALL_DIR}/include)
+
+# Dependencies
+add_dependencies(voronoi_cpp voro++)
+if(NOT Boost_FOUND)
+    add_dependencies(cgal boost)  # Make CGAL wait for Boost if we're building it
+endif()
+add_dependencies(triangulation_cpp cgal)
+target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS})
 
 # Install directive for scikit-build-core
-install(TARGETS vor_cpp LIBRARY DESTINATION matgeo)
+install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
