@@ -80,12 +80,6 @@ class SurfacePartition(ABC):
         self.partitions = partitions
         self.seeds_nd = seeds_nd
 
-    # @abstractmethod
-    # def grad_area(self) -> np.ndarray:
-    #     '''
-    #     Compute (covariant) gradient of the (surface) area with respect to the polygon 
-    #     '''
-
     @abstractmethod
     def grad_second_moment(self) -> Tuple[np.ndarray, np.ndarray]:
         '''
@@ -108,5 +102,12 @@ class SurfacePartition(ABC):
     def polygons(self) -> List[SurfacePolygon]:
         '''
         Convert the partition indices into polygons
+        '''
+        pass
+
+    @abstractmethod
+    def refine(self, k: int) -> 'SurfacePartition':
+        '''
+        Refine edges in the partition using additional points.
         '''
         pass

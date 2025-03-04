@@ -253,6 +253,11 @@ class PlanarPolygon(SurfacePolygon, Surface):
         self.vertices = vertices
         super().__init__(vertices_nd, surface=plane)
 
+    @property
+    def ndim(self) -> int:
+        ''' Dimension of ambient space '''
+        return self.vertices_nd.shape[1]
+
     def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
         Compute nth moment of area with respect to a center.
@@ -322,6 +327,18 @@ class PlanarPolygon(SurfacePolygon, Surface):
         S = self.nth_moment(2)
         _, V = la.eigh(S)
         return V[:, 0], V[:, 1]
+    
+    def major_axis(self) -> np.ndarray:
+        '''
+        Return major axis of polygon.
+        '''
+        return self.principal_axes()[1]
+
+    def minor_axis(self) -> np.ndarray:
+        '''
+        Return minor axis of polygon.
+        '''
+        return self.principal_axes()[0]
 
     def covariance_matrix(self) -> np.ndarray:
         '''
@@ -529,6 +546,9 @@ class PlanarPolygon(SurfacePolygon, Surface):
         poly = self.copy()
         poly.vertices = (poly.vertices - center) @ A.T + center
         return poly
+    
+    def transpose(self) -> 'PlanarPolygon':
+        return PlanarPolygon(self.vertices[:, ::-1])
     
     def to_shapely(self) -> Polygon:
         return Polygon(self.vertices)
@@ -762,6 +782,9 @@ class PlanarPolygonPartition(SurfacePartition):
     @property 
     def polygons(self) -> List[PlanarPolygon]:
         return [PlanarPolygon(self.vertices_nd[p], plane=self.surface.surface, check=False) for p in self.partitions]
+
+    def refine(self, n: int) -> 'PlanarPolygonPartition':
+        raise NotImplementedError
 
 '''
 Utility functions
