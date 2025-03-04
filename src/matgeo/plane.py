@@ -12,6 +12,7 @@ from shapely.geometry.polygon import orient as shapely_orient
 from shapely.validation import explain_validity
 from scipy.spatial import ConvexHull, Voronoi
 from scipy.spatial.distance import pdist
+from skimage.morphology import binary_erosion
 import pdb
 import shapely
 import shapely.geometry
@@ -22,6 +23,7 @@ import jax
 from .surface import *
 from .voronoi import poly_bounded_voronoi
 from .utils.poly import to_simple_polygons
+from .utils import mask as mutil
 
 class Plane(Surface):
     '''
@@ -635,6 +637,17 @@ class PlanarPolygon(SurfacePolygon, Surface):
     def apply_affine(self, T: np.ndarray) -> 'PlanarPolygon':
         vertices = self.vertices @ T[:2, :2].T + T[:2, 2]
         return PlanarPolygon(vertices, check=False)
+
+    def to_mask(self, shape: Tuple[int, int]) -> np.ndarray:
+        mask = np.zeros(shape, dtype=np.uint8)
+        mask = mutil.draw_poly(mask, self.vertices.flatten().tolist(), 1)
+        return mask.astype(bool)
+
+    def draw_outline(self, img: np.ndarray, label: int=1) -> np.ndarray:
+        mask = draw_polygon(np.zeros(img.shape[:2], dtype=np.uint8), poly)
+        mask = (mask - binary_erosion(mask, iterations=1)).astype(bool)
+        img[mask] = label
+        return img
 
     @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':
