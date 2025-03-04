@@ -139,7 +139,7 @@ void degree_2d(point_data xs, nb::ndarray<int, nb::ndim<1>> ds, const float L) {
     } while (vloop.inc());
 }
 
-NB_MODULE(vor, m) {
+NB_MODULE(voronoi_cpp, m) {
     m.def("add", [](int a, int b) { return a + b; }, "a"_a, "b"_a);
     m.def("force_2d", &force_2d);
     m.def("areas_2d", &areas_2d);

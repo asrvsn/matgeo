@@ -17,12 +17,7 @@ git clone https://github.com/microsoft/vcpkg.git
 cd vcpkg && ./bootstrap-vcpkg.sh
 ```
 
-# 2. Install `vcpkg` dependencies
-```bash
-vcpkg install
-```
-
-# 3. Install `matgeo`
+# 2. Install `matgeo`
 ```bash
 pip install nanobind scikit-build-core
 pip install --no-build-isolation -ve .

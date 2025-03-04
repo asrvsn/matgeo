@@ -1,7 +1,8 @@
 {
   "dependencies": [
     "cgal",
+    "nanobind",
     "python3",
-    "nanobind"
+    "eigen3"
   ]
 }
