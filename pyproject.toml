@@ -1,5 +1,9 @@
 [build-system]
-requires = ["scikit-build-core >=0.4.3", "nanobind >=1.3.2"]
+requires = [
+    "scikit-build-core>=0.4.3",
+    "nanobind>=1.3.2",
+    "ninja",
+]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -15,16 +19,19 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
 ]
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "shapely",
-    "tqdm",
-    "potpourri3d",
-    "openmesh",
-    "joblib",
-    "alphashape",
-    "CGAL",
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "cvxpy>=1.3.0",
+    "shapely>=2.0.0",    # Using newer Shapely API
+    "scikit-learn>=1.0.0",
+    "opencv-python>=4.5.0",
+    "jax>=0.4.0",
+    "tqdm>=4.0.0",
+    "potpourri3d>=0.0.4",
+    "openmesh>=1.2.0",
+    "joblib>=1.0.0",
+    "alphashape>=1.3.1",
+    "matplotlib>=3.5.0"
 ]
 
 [project.urls]

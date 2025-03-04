@@ -16,11 +16,9 @@ import joblib as jl
 import multiprocessing as mp
 import pickle
 import alphashape
-import CGAL
-from compas_cgal.reconstruction import poisson_surface_reconstruction, advancing_front_surface_reconstruction
-from compas_cgal.triangulation import periodic_delaunay_triangulation, constrained_delaunay_triangulation
 from collections import defaultdict
 
+import matgeo.triangulation_cpp as tri_cpp
 from .surface import *
 from .plane import Plane, PlanarPolygon
 from .parallel import parallel_farm_array
@@ -141,6 +139,9 @@ class Triangulation(Surface) :
                 seed = plane.embed(seed)
             seeds.append(seed)
         return polygons, np.array(seeds)
+
+    def voronoi_tessellate(self, seeds: np.ndarray) -> Tuple[List[PlanarPolygon], np.ndarray]:
+        raise NotImplementedError('Voronoi tessellation not implemented')
     
     def orient_outward(self, origin: np.ndarray):
         '''
@@ -417,13 +418,13 @@ class Triangulation(Surface) :
             mesh = alphashape.alphashape(pts, kwargs['alpha'])
             tri = Triangulation(mesh.vertices, mesh.faces)
         elif method == 'advancing_front':
-            V, F = advancing_front_surface_reconstruction(pts)
-            tri = Triangulation(V, F)
+            F = tri_cpp.advancing_front_surface_reconstruction(pts)
+            tri = Triangulation(pts, F)
         elif method == 'poisson':
             assert 'normals' in kwargs, 'Normals must be specified for Poisson surface reconstruction'
             assert pts.shape == kwargs['normals'].shape, 'Points and normals must have the same shape'
-            V, F = poisson_surface_reconstruction(pts, kwargs['normals'])
-            tri = Triangulation(V, F)
+            F = tri_cpp.poisson_surface_reconstruction(pts, kwargs['normals'])
+            tri = Triangulation(pts, F)
         else:
             raise ValueError(f'Unknown surface extraction method: {method}')
         if orient:
@@ -435,7 +436,7 @@ class Triangulation(Surface) :
         '''
         Compute the periodic Delaunay triangulation using CGAL
         '''
-        simplices = periodic_delaunay_triangulation(pts, box)
+        simplices = tri_cpp.periodic_delaunay_triangulation(pts, box)
         return Triangulation(pts, simplices)
     
     # @staticmethod
@@ -723,3 +724,38 @@ def circumcenter_3d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarra
     gamma = norm(p1 - p2, axis=-1)**2 * np.dot(p3 - p1, p3 - p2) / div
     cp = alpha * p1 + beta * p2 + gamma * p3
     return cp
+
+if __name__ == '__main__':
+    # Generate random points on a sphere
+    n_points = 1000
+    points = np.random.randn(n_points, 3)
+    points /= np.linalg.norm(points, axis=1)[:, np.newaxis]  # Normalize to unit sphere
+
+    # Test different surface reconstruction methods
+    print("Testing surface reconstruction methods...")
+    
+    # Test alpha shape method
+    print("\nTesting alpha shape method:")
+    alpha = 0.5  # Adjust this parameter as needed
+    tri_alpha = Triangulation.surface_3d(points, method='alpha_shape', alpha=alpha, orient=True)
+    print(f"Alpha shape reconstruction: {tri_alpha.pts.shape[0]} vertices, {tri_alpha.simplices.shape[0]} triangles")
+    
+    # Test advancing front method
+    print("\nTesting advancing front method:")
+    tri_af = Triangulation.surface_3d(points, method='advancing_front', orient=True)
+    print(f"Advancing front reconstruction: {tri_af.pts.shape[0]} vertices, {tri_af.simplices.shape[0]} triangles")
+    
+    # Test Poisson reconstruction
+    print("\nTesting Poisson reconstruction:")
+    # For sphere, normals point outward (same as points for unit sphere)
+    normals = points.copy()
+    tri_poisson = Triangulation.surface_3d(points, method='poisson', normals=normals, orient=True)
+    print(f"Poisson reconstruction: {tri_poisson.pts.shape[0]} vertices, {tri_poisson.simplices.shape[0]} triangles")
+
+    # Print areas (should be close to 4π for unit sphere)
+    sphere_area = 4 * np.pi
+    print("\nAreas (should be close to 4π ≈ 12.57):")
+    print(f"Alpha shape area: {tri_alpha.area():.2f}")
+    print(f"Advancing front area: {tri_af.area():.2f}")
+    print(f"Poisson area: {tri_poisson.area():.2f}")
+

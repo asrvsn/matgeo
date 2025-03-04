@@ -1,0 +1,241 @@
+#include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Advancing_front_surface_reconstruction.h>
+#include <CGAL/Surface_mesh.h>
+#include <CGAL/poisson_surface_reconstruction.h>
+#include <CGAL/compute_average_spacing.h>
+
+typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
+typedef Kernel::Point_3 Point;
+typedef CGAL::Surface_mesh<Point> Mesh;
+typedef Mesh::Vertex_index vertex_descriptor; 
+
+namespace nb = nanobind;
+
+using vertices_array = nb::ndarray<nb::numpy, double, nb::ndim<2>>;
+using faces_array = nb::ndarray<nb::numpy, int, nb::ndim<2>>;
+
+// Mesh builder class for incremental surface reconstruction
+// Handles vertex addition and face creation using vertex indices
+struct MeshBuilder {
+    Mesh& mesh;
+    
+    template <typename PointIterator>
+    MeshBuilder(Mesh& mesh, PointIterator b, PointIterator e)
+        : mesh(mesh)
+    {
+        for(; b != e; ++b) {
+            mesh.add_vertex(*b);
+        }
+    }
+    
+    MeshBuilder& operator=(const std::array<std::size_t, 3>& f) {
+        mesh.add_face(
+            vertex_descriptor(static_cast<std::size_t>(f[0])),
+            vertex_descriptor(static_cast<std::size_t>(f[1])),
+            vertex_descriptor(static_cast<std::size_t>(f[2]))
+        );
+        return *this;
+    }
+    
+    // Iterator interface required by CGAL
+    MeshBuilder& operator*() { return *this; }
+    MeshBuilder& operator++() { return *this; }
+    MeshBuilder operator++(int) { return *this; }
+};
+
+// Converts numpy ndarray of 2D/3D points to CGAL Point_3 vector
+// Handles both nx2 and nx3 arrays, setting z=0 for 2D points
+std::vector<Point> convert_points_to_cgal(const nb::ndarray<double>& points_array) {
+    // Validate input
+    if (points_array.ndim() != 2) {
+        throw std::runtime_error("Input points must be a 2D array");
+    }
+    
+    size_t n_points = points_array.shape(0);
+    size_t dim = points_array.shape(1);
+    
+    if (dim != 2 && dim != 3) {
+        throw std::runtime_error("Input points must have 2 or 3 coordinates per point");
+    }
+
+    // Create vector of CGAL points efficiently
+    std::vector<Point> cgal_points;
+    cgal_points.reserve(n_points);
+    
+    const double* data = points_array.data();
+    if (dim == 3) {
+        for (size_t i = 0; i < n_points; i++) {
+            cgal_points.emplace_back(
+                data[i * 3],
+                data[i * 3 + 1],
+                data[i * 3 + 2]
+            );
+        }
+    } else { // dim == 2
+        for (size_t i = 0; i < n_points; i++) {
+            cgal_points.emplace_back(
+                data[i * 2],
+                data[i * 2 + 1],
+                0.0
+            );
+        }
+    }
+    
+    return cgal_points;
+}
+
+// Convert CGAL mesh to numpy array of vertices
+vertices_array mesh_to_vertices(const Mesh& mesh) {
+    size_t n_vertices = mesh.number_of_vertices();
+    
+    // Allocate raw array
+    double* vertices_data = new double[n_vertices * 3];
+
+    // Create memory management capsule
+    nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
+        delete[] (double *) p;
+    });
+
+    // Fill vertices directly using vertex indices
+    for (const auto& v : mesh.vertices()) {
+        const Point& p = mesh.point(v);
+        size_t idx = v.idx();  // Use built-in index
+        vertices_data[idx * 3] = p.x();
+        vertices_data[idx * 3 + 1] = p.y();
+        vertices_data[idx * 3 + 2] = p.z();
+    }
+
+    return vertices_array(vertices_data, { n_vertices, 3 }, vertices_owner);
+}
+
+// Convert CGAL mesh to numpy array of faces
+faces_array mesh_to_faces(const Mesh& mesh) {
+    size_t n_faces = mesh.number_of_faces();
+    
+    // Allocate raw array
+    int* faces_data = new int[n_faces * 3];
+
+    // Create memory management capsule
+    nb::capsule faces_owner(faces_data, [](void *p) noexcept {
+        delete[] (int *) p;
+    });
+
+    // Fill faces using vertex indices
+    for (const auto& f : mesh.faces()) {
+        size_t face_idx = f.idx();
+        int i = 0;
+        for (vertex_descriptor v : vertices_around_face(mesh.halfedge(f), mesh)) {
+            faces_data[face_idx * 3 + i] = static_cast<int>(v.idx());
+            i++;
+        }
+    }
+
+    return faces_array(faces_data, { n_faces, 3 }, faces_owner);
+}
+
+// Performs advancing front surface reconstruction on point cloud
+// Takes nx2 or nx3 point array, returns faces array
+faces_array
+advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array) 
+{
+    std::vector<Point> cgal_points = convert_points_to_cgal(points_array);
+    Mesh mesh;
+    MeshBuilder builder(mesh, cgal_points.begin(), cgal_points.end());
+    CGAL::advancing_front_surface_reconstruction(
+        cgal_points.begin(),
+        cgal_points.end(),
+        builder);
+    
+    return mesh_to_faces(mesh);
+}
+
+// Define the point-normal pair type
+typedef std::pair<Point, Kernel::Vector_3> PointVectorPair;
+
+// Converts numpy ndarrays of points and normals to vector of CGAL point-normal pairs
+std::vector<PointVectorPair> convert_points_normals_to_cgal(
+    const nb::ndarray<double>& points_array,
+    const nb::ndarray<double>& normals_array) 
+{
+    // Validate input
+    if (points_array.ndim() != 2 || normals_array.ndim() != 2) {
+        throw std::runtime_error("Input points and normals must be 2D arrays");
+    }
+    if (points_array.shape(0) != normals_array.shape(0) || 
+        points_array.shape(1) != 3 || normals_array.shape(1) != 3) {
+        throw std::runtime_error("Points and normals must be nx3 arrays of same length");
+    }
+
+    // Create vector of point-normal pairs
+    std::vector<PointVectorPair> points;
+    size_t n_points = points_array.shape(0);
+    points.reserve(n_points);
+
+    const double* points_data = points_array.data();
+    const double* normals_data = normals_array.data();
+
+    for (size_t i = 0; i < n_points; i++) {
+        points.emplace_back(
+            Point(
+                points_data[i * 3],
+                points_data[i * 3 + 1],
+                points_data[i * 3 + 2]
+            ),
+            Kernel::Vector_3(
+                normals_data[i * 3],
+                normals_data[i * 3 + 1],
+                normals_data[i * 3 + 2]
+            )
+        );
+    }
+    
+    return points;
+}
+
+faces_array
+poisson_surface_reconstruction(
+    const nb::ndarray<double>& points_array,
+    const nb::ndarray<double>& normals_array)
+{
+    std::vector<PointVectorPair> points = convert_points_normals_to_cgal(points_array, normals_array);
+
+    // Compute average spacing
+    double average_spacing = CGAL::compute_average_spacing<CGAL::Sequential_tag>(
+        points,
+        6,  // number of neighbors
+        CGAL::parameters::point_map(CGAL::First_of_pair_property_map<PointVectorPair>())
+    );
+
+    // Create mesh
+    Mesh mesh;
+    CGAL::poisson_surface_reconstruction_delaunay(
+        points.begin(),
+        points.end(),
+        CGAL::First_of_pair_property_map<PointVectorPair>(),
+        CGAL::Second_of_pair_property_map<PointVectorPair>(),
+        mesh,
+        average_spacing
+    );
+
+    return mesh_to_faces(mesh);
+}
+
+// Binding code
+NB_MODULE(triangulation_cpp, m) {
+    m.def("advancing_front_surface_reconstruction", 
+          &advancing_front_surface_reconstruction,
+          "Performs advancing front surface reconstruction on a point cloud\n"
+          "Input: nx2 or nx3 array of points\n"
+          "Returns: faces array (triangles defined by vertex indices)",
+          nb::arg("points").noconvert());
+          
+    m.def("poisson_surface_reconstruction",
+          &poisson_surface_reconstruction,
+          "Performs Poisson surface reconstruction on a point cloud with normals\n"
+          "Input: nx3 array of points and nx3 array of normals\n"
+          "Returns: faces array (triangles defined by vertex indices)",
+          nb::arg("points").noconvert(),
+          nb::arg("normals").noconvert());
+}

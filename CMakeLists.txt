@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.20...3.26)
 
+# Include vcpkg toolchain if VCPKG_ROOT is defined
+if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING "")
+    message(STATUS "Using vcpkg toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 project(matgeo LANGUAGES CXX)
 
 if (NOT SKBUILD)
@@ -26,7 +33,7 @@ if (NOT SKBUILD)
 endif()
 
 # Try to import all Python components potentially needed by nanobind
-find_package(Python 3.8
+find_package(Python 3.10
   REQUIRED COMPONENTS Interpreter Development.Module
   OPTIONAL_COMPONENTS Development.SABIModule)
 
@@ -36,7 +43,7 @@ find_package(nanobind CONFIG REQUIRED)
 # We are now ready to compile the actual extension module
 nanobind_add_module(
   # Name of the extension
-  vor_cpp
+  voronoi_cpp
   
   # Target the stable ABI for Python 3.12+, which reduces
   # the number of binary wheels that must be built. This
@@ -52,7 +59,14 @@ nanobind_add_module(
   NB_STATIC
   
   # Source code goes here
-  src/vor.cpp
+  src/voronoi.cpp
+  )
+
+nanobind_add_module(
+  triangulation_cpp
+  STABLE_ABI
+  NB_STATIC
+  src/triangulation.cpp
   )
 
 include(ExternalProject)
@@ -69,8 +83,7 @@ else()
 endif()
 
 ExternalProject_Add(voro++
-    URL http://math.lbl.gov/voro++/download/dir/voro++-0.4.6.tar.gz
-    URL_MD5 2338b824c3b7b25590e18e8df5d68af9
+    URL https://github.com/chr1shr/voro/archive/refs/tags/v0.4.6.tar.gz
     CONFIGURE_COMMAND "" 
     BUILD_COMMAND make ${VORO_BUILD_OPTIONS} 
     BUILD_IN_SOURCE 1 
@@ -81,9 +94,16 @@ ExternalProject_get_property(voro++ SOURCE_DIR)
 set(VOROPP_LIBRARIES ${SOURCE_DIR}/src/libvoro++.a)
 set(VOROPP_INCLUDE_DIRS ${SOURCE_DIR}/src)
 message(STATUS "Found VORO: ${VOROPP_INCLUDE_DIRS} ${VOROPP_LIBRARIES}")
-include_directories(${VOROPP_INCLUDE_DIRS})
-target_link_libraries(vor_cpp PRIVATE ${VOROPP_LIBRARIES})
-add_dependencies(vor_cpp voro++)
+target_include_directories(voronoi_cpp PRIVATE ${VOROPP_INCLUDE_DIRS})
+target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
+
+## CGAL 
+find_package(CGAL REQUIRED)
+
+# Dependencies
+add_dependencies(voronoi_cpp voro++)
+target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS})
+target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL)
 
 # Install directive for scikit-build-core
-install(TARGETS vor_cpp LIBRARY DESTINATION matgeo)
+install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
