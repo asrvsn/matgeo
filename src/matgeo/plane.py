@@ -633,6 +633,10 @@ class PlanarPolygon(SurfacePolygon, Surface):
     def diameter(self) -> float:
         ''' Diameter of polygon '''
         return pdist(self.vertices).max()
+
+    def max_noncentrality(self) -> float:
+        ''' Maximum noncentrality of polygon '''
+        return la.norm(self.vertices - self.centroid(), axis=1).max()
     
     def apply_affine(self, T: np.ndarray) -> 'PlanarPolygon':
         vertices = self.vertices @ T[:2, :2].T + T[:2, 2]

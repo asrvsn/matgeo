@@ -420,7 +420,7 @@ class Ellipsoid(Surface):
     @staticmethod
     def vol_n_sphere(n: int) -> float:
         ''' Volume of n-sphere '''
-        return np.pi ** (n/2) / np.math.gamma(n/2 + 1)
+        return np.pi ** (n/2) / special.gamma(n/2 + 1)
     
     @staticmethod
     def n_sphere(n: int, v: np.ndarray=None, r: float=1) -> 'Ellipsoid':
