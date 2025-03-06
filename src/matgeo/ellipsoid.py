@@ -405,6 +405,9 @@ class Ellipsoid(Surface):
         
     def voronoi_tessellate(self, pts):
         raise NotImplementedError
+    
+    def mahalanobis_distance(self, x: np.ndarray) -> float:
+        return np.sqrt((x - self.v) @ self.M @ (x - self.v))
         
     @staticmethod
     def from_poly(poly: PlanarPolygon, equiarea: bool=True) -> 'Ellipsoid':

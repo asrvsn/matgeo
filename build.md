@@ -1,11 +1,7 @@
 # 0. OS-specific prereqs
 macOS:
 ```bash
-brew install cmake
-brew install pkg-config
-brew install autoconf
-brew install automake
-brew install autoconf-archive
+brew install cmake pkg-config autoconf automake autoconf-archive
 ```
 
 linux:
