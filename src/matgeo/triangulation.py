@@ -519,7 +519,10 @@ class ConvexTriangulation(Triangulation):
     def project_poly_z(self, poly: PlanarPolygon, plane: Optional[Plane]=None) -> PlanarPolygon:
         ''' Project a polygon onto the convex hull in the XY plane '''
         assert poly.ndim == 2
-        return PlanarPolygon(self.project_z(poly.vertices), plane=plane)
+        poly = PlanarPolygon(self.project_z(poly.vertices), plane=plane)
+        if poly.normal @ np.array([0, 0, 1]) > 0: # Flip if normal points wrong direction (up)
+            poly.flip()
+        return poly
 
 
 class FaceTriangulation(Triangulation):

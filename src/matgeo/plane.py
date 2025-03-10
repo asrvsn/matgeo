@@ -266,7 +266,17 @@ class PlanarPolygon(SurfacePolygon, Surface):
     def plane(self) -> Plane:
         ''' Plane on which the polygon lies '''
         return self.surface
-
+    
+    @property 
+    def normal(self) -> np.ndarray:
+        ''' Normal vector of the plane '''
+        assert self.ndim > 2, 'Normal vector is only defined in dimension d > 2'
+        return self.plane.n
+    
+    def flip(self):
+        ''' Flip the normal vector of the plane '''
+        self.plane.n *= -1
+    
     def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
         Compute nth moment of area with respect to a center.
