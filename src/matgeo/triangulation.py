@@ -8,6 +8,7 @@ from numpy.linalg import norm
 from typing import Tuple, List, Dict, Set
 from scipy.spatial import ConvexHull, KDTree, Delaunay
 from scipy.spatial.distance import cdist
+from skimage.measure import marching_cubes
 import pdb
 from tqdm import tqdm
 import potpourri3d as pp3d
@@ -397,6 +398,15 @@ class Triangulation(Surface) :
 
     def voronoi_tessellate(self, pts):
         raise NotImplementedError
+    
+    def hullify(self) -> 'Triangulation':
+        '''
+        Compute the convex hull of the triangulation
+        '''
+        hull = ConvexHull(self.pts)
+        pts = self.pts[hull.vertices]
+        hull = ConvexHull(pts) # Avoid taking memory with tons of points
+        return Triangulation(pts, hull.simplices)
 
     def export(self, folder: str, name: str):
         '''
@@ -430,6 +440,17 @@ class Triangulation(Surface) :
         if orient:
             tri.orient()
         return tri
+    
+    @staticmethod
+    def from_volume(volume: np.ndarray, method='marching_cubes', **kwargs) -> 'Triangulation':
+        '''
+        Extract a surface triangulation from a 3d volume
+        '''
+        if method == 'marching_cubes':
+            verts, faces, normals, values = marching_cubes(volume, **kwargs)
+            return Triangulation(verts, faces)
+        else:
+            raise ValueError(f'Unknown surface extraction method: {method}')
         
     @staticmethod
     def periodic_delaunay(pts: np.ndarray, box: np.ndarray) -> 'Triangulation':

@@ -8,7 +8,7 @@ import numpy.linalg as la
 import scipy.optimize as scopt
 from scipy.linalg import sqrtm
 import scipy.special as special
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Optional
 import pdb
 
 from .surface import Surface
@@ -145,7 +145,7 @@ class Ellipsoid(Surface):
         Y = Ybar + self.v[None, :]
         return Y
 
-    def project_z(self, X: np.ndarray, tol=1e-3, batch=10, initial_z=-1000) -> np.ndarray:
+    def project_z_OLD(self, X: np.ndarray, tol=1e-3, batch=10, initial_z=-1000) -> np.ndarray:
         ''' Project points in an X-Y plane onto the ellipsoid in the ellipsoid's own basis '''
         assert X.ndim == 2, 'X must be 2d'
         assert X.shape[1] == 2, 'X must be planar'
@@ -169,6 +169,36 @@ class Ellipsoid(Surface):
         Xbar = np.hstack((xybar, zbar[:, None]))
         X = Xbar + self.v[None, :]
         return X
+
+    def project_z(self, X: np.ndarray) -> np.ndarray:
+        '''
+        Project points in XY plane onto ellipsoid using simple quadratic equation
+        '''
+        assert X.ndim == 2, 'X must be 2d'
+        assert X.shape[1] == 2, 'X must be planar'
+        assert self.ndim == 3, 'Ellipsoid must be 3d'
+        n = X.shape[0]
+        M = self.M
+
+        # Let y = x - v, solving for y2 in y^T M y = 1 where y = [y0, y1, y2]
+        y01 = X - self.v[:2]
+        y0, y1 = y01[:,0], y01[:,1]
+
+        # Coefficients of ax^2 + bx + c = 0 for x
+        a = np.full(n, M[2, 2])
+        b = y01 @ M[2, :2] + y0 * M[0, 2] + y1 * M[1, 2]
+        c = y0 * (y01 @ M[0, :2]) + y1 * (y01 @ M[1, :2]) - 1
+
+        # Using Citardauq formula for numerical stability, take root closest to zero
+        y2 = 2 * c / (-b - np.sqrt(b**2 - 4 * a * c))
+        x2 = y2 + self.v[2]
+        X_ = np.hstack((X, x2[:, None]))
+        return X_
+
+    def project_poly_z(self, poly: PlanarPolygon, plane: Optional[Plane]=None) -> PlanarPolygon:
+        ''' Project a polygon onto the ellipsoid in the XY plane '''
+        assert poly.ndim == 2
+        return PlanarPolygon(self.project_z(poly.vertices), plane=plane)
 
     def dist(self, X: np.ndarray, **kwargs) -> np.ndarray:
         assert X.ndim == 2, 'X must be 2d'
@@ -472,6 +502,20 @@ class Ellipse(Ellipsoid):
         P = P.T
         theta = np.arctan2(P[1,0], P[0,0]) # Angle from orthogonal matrix P.T
         return theta
+
+    def revolve_major(self, v_z: float=0.0) -> Ellipsoid:
+        '''
+        Transform 2D ellipse to 3D ellipsoid using major axis as axis of rotation
+        (defaults to z-coordinate in the XY plane)
+        '''
+        L, P = la.eigh(self.M)
+        L_ = np.array([L[0], L[1], L[1]]) # Minor axis repeats
+        P_ = np.zeros((3, 3))
+        P_[:2, :2] = P # Original eigenvectors remain in plane
+        P_[:, 2] = np.array([0, 0, 1]) # New eigenvector is z-axis
+        M_ = P_ @ np.diag(L_) @ P_.T
+        v_ = np.array([self.v[0], self.v[1], v_z])
+        return Ellipsoid(M_, v_)
     
     @staticmethod
     def from_ellipsoid(ell: Ellipsoid) -> 'Ellipse':

@@ -30,7 +30,7 @@ class Plane(Surface):
     Hyperplane in d dimensions represented in normal-offset form.
     If in ambient two dimensions, then the "plane" is a line.
     '''
-    def __init__(self, n: np.ndarray, v: np.ndarray):
+    def __init__(self, n: np.ndarray, v: np.ndarray, basis: Optional[np.ndarray]=None):
         d = n.shape[0]
         assert d >= 2, 'Plane must be at least planar :P'
         nm = la.norm(n)
@@ -45,12 +45,16 @@ class Plane(Surface):
             self.basis = np.array([[-self.n[1], self.n[0]]])
         else:
             # In 3 and higher dimensions, pick a random basis for the plane
-            e_x = np.cross(self.n, np.random.randn(d))
-            assert la.norm(e_x) > 0
-            e_x /= la.norm(e_x)
-            e_y = np.cross(self.n, e_x)
-            assert np.allclose(1, la.norm(e_y))
-            self.basis = np.stack([e_x, e_y], axis=-1)
+            if basis is None:
+                e_x = np.cross(self.n, np.random.randn(d))
+                assert la.norm(e_x) > 0
+                e_x /= la.norm(e_x)
+                e_y = np.cross(self.n, e_x)
+                assert np.allclose(1, la.norm(e_y))
+                self.basis = np.stack([e_x, e_y], axis=-1)
+            else:
+                assert basis.shape == (d, 2)
+                self.basis = basis
             assert np.allclose(self.basis.T @ self.basis, np.eye(2))
 
     @staticmethod
@@ -184,17 +188,17 @@ class Plane(Surface):
     @staticmethod
     def XY() -> 'Plane':
         ''' XY plane in 3D '''
-        return Plane(np.array([0,0,1]), np.array([0,0,0]))
+        return Plane(np.array([0,0,1]), np.array([0,0,0]), basis=np.array([[1,0],[0,1],[0,0]]))
     
     @staticmethod
     def XZ() -> 'Plane':
         ''' XZ plane in 3D '''
-        return Plane(np.array([0,1,0]), np.array([0,0,0]))
+        return Plane(np.array([0,1,0]), np.array([0,0,0]), basis=np.array([[1,0],[0,0],[0,1]]))
     
     @staticmethod
     def YZ() -> 'Plane':
         ''' YZ plane in 3D '''
-        return Plane(np.array([1,0,0]), np.array([0,0,0]))
+        return Plane(np.array([1,0,0]), np.array([0,0,0]), basis=np.array([[0,0],[1,0],[0,1]]))
     
 class PlanePartition(SurfacePartition):
     def grad_second_moment(self):
@@ -221,11 +225,9 @@ class PlanarPolygon(SurfacePolygon, Surface):
         # Compute planar embedding as needed
         if nd > 2:
             if plane is None:
+                # Fit the plane if not given
                 plane = Plane.fit_l2(vertices)
-                vertices = plane.embed(plane.project_l2(vertices))
-            else:
-                # Assumes vertices are coplanar in the given plane
-                vertices = plane.embed(vertices)
+            vertices = plane.embed(plane.project_l2(vertices)) # Vertices are now coplanar in this plane
         # Check validity and try to recover / complain as needed (uses Shapely)
         if check: 
             poly = Polygon(vertices)
@@ -259,6 +261,11 @@ class PlanarPolygon(SurfacePolygon, Surface):
     def ndim(self) -> int:
         ''' Dimension of ambient space '''
         return self.vertices_nd.shape[1]
+    
+    @property
+    def plane(self) -> Plane:
+        ''' Plane on which the polygon lies '''
+        return self.surface
 
     def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
@@ -652,6 +659,12 @@ class PlanarPolygon(SurfacePolygon, Surface):
         mask = (mask - binary_erosion(mask, iterations=1)).astype(bool)
         img[mask] = label
         return img
+    
+    def embed_XY(self) -> 'PlanarPolygon':
+        ''' Embed polygons in XY plane'''
+        plane = Plane.XY()
+        vertices = np.hstack((self.vertices, np.zeros((self.vertices.shape[0], 1))))
+        return PlanarPolygon(vertices, plane=plane, check=False) # Assume I am already valid
 
     @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':
