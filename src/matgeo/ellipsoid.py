@@ -172,7 +172,8 @@ class Ellipsoid(Surface):
 
     def project_z(self, X: np.ndarray) -> np.ndarray:
         '''
-        Project points in XY plane onto ellipsoid using simple quadratic equation
+        Project points in XY plane onto ellipsoid using simple quadratic equation.
+        Essentially casts X as parallel light rays onto the ellipsoid and finds the intersection points.
         '''
         assert X.ndim == 2, 'X must be 2d'
         assert X.shape[1] == 2, 'X must be planar'

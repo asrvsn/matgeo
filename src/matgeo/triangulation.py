@@ -57,6 +57,15 @@ class Triangulation(Surface) :
     def ndim(self):
         return self.pts.shape[1]
 
+    def __add__(self, v: np.ndarray) -> 'Triangulation':
+        '''
+        Translate the triangulation by v
+        '''
+        return Triangulation(self.pts + v, self.simplices)
+    
+    def __sub__(self, v: np.ndarray) -> 'Triangulation':
+        return self + (-v)
+
     def compute_simplex_areas(self) -> np.ndarray:
         '''
         Return a t x 1 array of simplex areas
@@ -406,7 +415,7 @@ class Triangulation(Surface) :
         hull = ConvexHull(self.pts)
         pts = self.pts[hull.vertices]
         hull = ConvexHull(pts) # Avoid taking memory with tons of points
-        return Triangulation(pts, hull.simplices)
+        return ConvexTriangulation(hull)
 
     def export(self, folder: str, name: str):
         '''
@@ -423,7 +432,9 @@ class Triangulation(Surface) :
         Extract a surface triangulation from a Delaunay tetrahedralization
         using one of several possible methods to extract triangles correspoding to a "surface"
         '''
-        if method == 'alpha_shape':
+        if method == 'chull':
+            tri = Triangulation.from_convex_hull(pts)
+        elif method == 'alpha_shape':
             assert 'alpha' in kwargs, 'Alpha parameter must be specified for alpha shape method'
             mesh = alphashape.alphashape(pts, kwargs['alpha'])
             tri = Triangulation(mesh.vertices, mesh.faces)
@@ -473,6 +484,43 @@ class Triangulation(Surface) :
         simplices = Delaunay(poly.vertices).simplices # TODO: use constrained delaunay
         vertices = np.hstack((poly.vertices, np.full((poly.vertices.shape[0], 1), z)))
         return Triangulation(vertices, simplices)
+    
+class ConvexTriangulation(Triangulation):
+    ''' Triangulated convex hull '''
+
+    def __init__(self, hull: ConvexHull):
+        self.hull = hull
+        super().__init__(hull.points, hull.simplices)
+
+    def project_z(self, X: np.ndarray) -> np.ndarray:
+        '''
+        Project points in XY plane as parallel light rays onto convex hull lying in the upper-half Z space
+        '''
+        assert X.ndim == 2
+        assert X.shape[1] == 2
+        assert self.ndim == 3
+        assert self.pts.shape[1] == 3
+        assert (self.pts[:, 2] > 0).all(), 'Convex hull must lie in upper half Z space. Try translating the hull.'
+        # Get plane equations from hull: Ax + By + Cz + D = 0
+        Ns, D = self.hull.equations[:, :-1], self.hull.equations[:, -1]
+        lower = Ns[:, 2] < 0 # Select only planes pointing down
+        Ns, D = Ns[lower], D[lower]
+        # For each point and each plane, calculate z = -(Ax + By + D) / C
+        z_outer = -(
+            np.outer(X[:, 0], Ns[:, 0]) +
+            np.outer(X[:, 1], Ns[:, 1]) +
+            np.outer(np.ones(X.shape[0]), D)
+        ) / np.outer(np.ones(X.shape[0]), Ns[:, 2]) # (n points, m planes)
+        # By convexity, the maximum suffices. This assumes the XY points are contained within the body XY coordinates.
+        z = np.max(z_outer, axis=1)
+        X_proj = np.hstack((X, z[:, None]))
+        return X_proj
+    
+    def project_poly_z(self, poly: PlanarPolygon, plane: Optional[Plane]=None) -> PlanarPolygon:
+        ''' Project a polygon onto the convex hull in the XY plane '''
+        assert poly.ndim == 2
+        return PlanarPolygon(self.project_z(poly.vertices), plane=plane)
+
 
 class FaceTriangulation(Triangulation):
 
