@@ -13,6 +13,8 @@ from shapely.validation import explain_validity
 from scipy.spatial import ConvexHull, Voronoi
 from scipy.spatial.distance import pdist
 from skimage.morphology import binary_erosion
+import skimage
+import skimage.measure
 import pdb
 import shapely
 import shapely.geometry
@@ -56,6 +58,14 @@ class Plane(Surface):
                 assert basis.shape == (d, 2)
                 self.basis = basis
             assert np.allclose(self.basis.T @ self.basis, np.eye(2))
+
+    def __add__(self, v: np.ndarray) -> 'Plane':
+        ''' Translate the plane '''
+        return Plane(self.n, self.v + v)
+    
+    def __sub__(self, v: np.ndarray) -> 'Plane':
+        ''' Translate the plane '''
+        return Plane(self.n, self.v - v)
 
     @staticmethod
     def fit_l2(X: np.ndarray, tol=1e-3) -> 'Plane':
@@ -276,6 +286,13 @@ class PlanarPolygon(SurfacePolygon, Surface):
     def flip(self):
         ''' Flip the normal vector of the plane '''
         self.plane.n *= -1
+
+    def reverse_embed(self, x: np.ndarray) -> np.ndarray:
+        ''' Reverse embed a point from the plane '''
+        if self.ndim == 2:
+            return x
+        else:
+            return self.plane.reverse_embed(x)
     
     def nth_moment(self, n: int, center=None, standardized: bool=False):
         '''
@@ -515,16 +532,16 @@ class PlanarPolygon(SurfacePolygon, Surface):
 
     def __mul__(self, s: float) -> 'PlanarPolygon':
         ''' Scale the polygon about its centroid '''
-        mu = self.centroid()
-        return PlanarPolygon((self.vertices - mu) * s + mu)
+        mu = self.reverse_embed(self.centroid())
+        return PlanarPolygon((self.vertices_nd - mu) * s + mu)
 
     def __sub__(self, mu: np.ndarray) -> 'PlanarPolygon':
         ''' Translate the polygon '''
-        return PlanarPolygon(self.vertices - mu)
+        return PlanarPolygon(self.vertices_nd - mu)
 
     def __add__(self, mu: np.ndarray) -> 'PlanarPolygon':
         ''' Translate the polygon '''
-        return PlanarPolygon(self.vertices + mu)
+        return PlanarPolygon(self.vertices_nd + mu)
 
     def match_area(self, area: float) -> 'PlanarPolygon':
         ''' Scale polygon about centroid to match area of other polygon '''
@@ -533,28 +550,32 @@ class PlanarPolygon(SurfacePolygon, Surface):
 
     def set_res(self, xres: float, yres: float) -> 'PlanarPolygon':
         ''' Rescale the polygon to a given resolution, with origin in the original basis of the coordinates '''
+        assert self.ndim == 2
         poly = self.copy()
         poly.vertices *= np.array([xres, yres])
         return poly
     
     def flipxy(self) -> 'PlanarPolygon':
         ''' Flip polygon about x-axis '''
+        assert self.ndim == 2
         return PlanarPolygon(self.vertices[:, ::-1])
     
     def flipy(self, yval: float) -> 'PlanarPolygon':
         ''' Flip polygon about y-value '''
+        assert self.ndim == 2
         vertices = self.vertices.copy()
         vertices[:, 1] = yval - vertices[:, 1]
         return PlanarPolygon(vertices)
     
     def flipx(self, xval: float) -> 'PlanarPolygon':
         ''' Flip polygon about x-value '''
+        assert self.ndim == 2
         vertices = self.vertices.copy()
         vertices[:, 0] = xval - vertices[:, 0]
         return PlanarPolygon(vertices)
 
     def copy(self) -> 'PlanarPolygon':
-        return PlanarPolygon(self.vertices.copy(), check=False) # Assume I am already valid
+        return PlanarPolygon(self.vertices_nd.copy(), check=False) # Assume I am already valid
     
     def transform(self, A: np.ndarray, center: np.ndarray=None) -> 'PlanarPolygon':
         '''
@@ -574,7 +595,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
     
     def center(self) -> 'PlanarPolygon':
         ''' Center polygon at origin '''
-        return self - self.centroid()
+        return self - self.reverse_embed(self.centroid())
 
     def intersects(self, other: 'PlanarPolygon') -> bool:
         ''' Check if two polygons intersect '''
@@ -582,6 +603,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
 
     def intersection(self, other: 'PlanarPolygon') -> List['PlanarPolygon']:
         ''' Intersection of two polygons '''
+        assert self.ndim == 2 and other.ndim == 2
         inter = self.to_shapely().intersection(other.to_shapely())
         if inter.is_empty:
             return []
@@ -590,6 +612,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
         
     def match_ellipse(self, ellipse) -> 'PlanarPolygon':
         ''' Match polygon center, area, and aspect ratio to the ellipse '''
+        assert self.ndim == 2
         poly = self - self.centroid() # Center to 0
         poly = poly.whiten() # Set second moment to multiple of identity
         S = la.inv(ellipse.M) # Desired second moment
@@ -605,32 +628,38 @@ class PlanarPolygon(SurfacePolygon, Surface):
     
     def symmetric_difference(self, other: 'PlanarPolygon') -> List['PlanarPolygon']:
         ''' Symmetric difference of two polygons '''
+        assert self.ndim == 2 and other.ndim == 2
         diff = self.to_shapely().symmetric_difference(other.to_shapely())
         diff = to_simple_polygons(diff)
         return [PlanarPolygon.from_shapely(p) for p in diff]
     
     def symmetric_difference_area(self, other: 'PlanarPolygon') -> float:
         ''' Area of symmetric difference of two polygons '''
+        assert self.ndim == 2 and other.ndim == 2
         return self.to_shapely().symmetric_difference(other.to_shapely()).area
     
     def iou(self, other: 'PlanarPolygon') -> float:
         ''' Intersection over union of two polygons '''
+        assert self.ndim == 2 and other.ndim == 2
         ia = self.to_shapely().intersection(other.to_shapely()).area
         ua = self.area() + other.area() - ia
         return ia / ua
 
     def bounding_box(self) -> Tuple[float, float, float, float]:
         ''' Bounding box of polygon in format (xmin, ymin, xmax, ymax) '''
+        assert self.ndim == 2
         return self.to_shapely().bounds
 
     def contains(self, x: np.ndarray) -> bool:
         ''' Check if point is contained in polygon '''
+        assert self.ndim == 2
         return self.to_shapely().contains(shapely.geometry.Point(x))
     
     def shape_index(self) -> float:
         return self.perimeter() / np.sqrt(self.area())
     
     def hullify(self) -> 'PlanarPolygon':
+        assert self.ndim == 2
         return PlanarPolygon.from_pointcloud(self.vertices)
     
     def simplify(self, eps: float, use_arclen: bool=True) -> 'PlanarPolygon':
@@ -643,9 +672,15 @@ class PlanarPolygon(SurfacePolygon, Surface):
         else:
             if use_arclen:
                 eps *= self.perimeter()
-            # pdb.set_trace()
             vertices = cv2.approxPolyDP(self.vertices.astype(np.float32), eps, True).reshape(-1, 2)
             return PlanarPolygon(vertices, check=False) # Assume cv2 produces valid output
+        
+    def subdivide_bspline(self, degree: int=2) -> 'PlanarPolygon':
+        '''
+        Subdivide polygon using B-spline subdivision
+        '''
+        assert self.ndim == 2
+        return PlanarPolygon(skimage.measure.subdivide_polygon(self.vertices, degree=degree, preserve_ends=False))
 
     def diameter(self) -> float:
         ''' Diameter of polygon '''
@@ -665,16 +700,21 @@ class PlanarPolygon(SurfacePolygon, Surface):
         return mask.astype(bool)
 
     def draw_outline(self, img: np.ndarray, label: int=1) -> np.ndarray:
+        assert self.ndim == 2
         mask = draw_polygon(np.zeros(img.shape[:2], dtype=np.uint8), poly)
         mask = (mask - binary_erosion(mask, iterations=1)).astype(bool)
         img[mask] = label
         return img
     
-    def embed_XY(self) -> 'PlanarPolygon':
+    def embed_3d(self, z: float=0.) -> 'PlanarPolygon':
         ''' Embed polygons in XY plane'''
-        plane = Plane.XY()
-        vertices = np.hstack((self.vertices, np.zeros((self.vertices.shape[0], 1))))
+        assert self.ndim == 2
+        plane = Plane.XY() + np.array([0, 0, z])
+        vertices = np.hstack((self.vertices, np.full((self.vertices.shape[0], 1), z)))
         return PlanarPolygon(vertices, plane=plane, check=False) # Assume I am already valid
+    
+    def embed_XY(self) -> 'PlanarPolygon':
+        return self.embed_3d(z=0.)
 
     @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':
