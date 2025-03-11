@@ -111,6 +111,7 @@ add_library(SNLib STATIC
     src/SNLib/MMCellMap.cpp
     src/SNLib/MMGeometryGL.cpp
     src/SNLib/MMGeometryOBJ.cpp
+    src/SNLib/MMCellFlag.cpp
 )
 target_include_directories(SNLib PUBLIC src/SNLib)
 

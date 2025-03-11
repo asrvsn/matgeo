@@ -5,6 +5,7 @@
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/poisson_surface_reconstruction.h>
 #include <CGAL/compute_average_spacing.h>
+#include "MMSurfaceNet.h"
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef Kernel::Point_3 Point;
@@ -137,8 +138,7 @@ faces_array mesh_to_faces(const Mesh& mesh) {
 
 // Performs advancing front surface reconstruction on point cloud
 // Takes nx2 or nx3 point array, returns faces array
-faces_array
-advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array) 
+faces_array advancing_front_surface_reconstruction(const nb::ndarray<double>& points_array) 
 {
     std::vector<Point> cgal_points = convert_points_to_cgal(points_array);
     Mesh mesh;
@@ -194,8 +194,7 @@ std::vector<PointVectorPair> convert_points_normals_to_cgal(
     return points;
 }
 
-faces_array
-poisson_surface_reconstruction(
+faces_array poisson_surface_reconstruction(
     const nb::ndarray<double>& points_array,
     const nb::ndarray<double>& normals_array)
 {
@@ -222,6 +221,144 @@ poisson_surface_reconstruction(
     return mesh_to_faces(mesh);
 }
 
+// Function to extract surface mesh from labeled volume using Surface Nets
+std::tuple<vertices_array, faces_array> 
+extract_surface_net(
+    const nb::ndarray<nb::numpy, unsigned short, nb::ndim<3>, nb::c_contig>& labels_array, 
+    const nb::ndarray<nb::numpy, float, nb::shape<3>, nb::c_contig>& voxel_size_array) 
+{
+    int array_size[3] = {
+        static_cast<int>(labels_array.shape(0)), static_cast<int>(labels_array.shape(1)), static_cast<int>(labels_array.shape(2))
+    };
+    float voxel_size[3] = {
+        voxel_size_array.data()[0], voxel_size_array.data()[1], voxel_size_array.data()[2]
+    };
+    
+    // Create Surface Net with raw pointer to the numpy array data
+    MMSurfaceNet surface_net(
+        const_cast<unsigned short*>(labels_array.data()), // Cast away const for the API
+        array_size,
+        voxel_size
+    );
+    
+    // For now, return placeholder empty arrays
+    // We'll implement the actual mesh extraction in the next step
+    
+    // Create empty vertices array
+    double* vertices_data = new double[1 * 3];
+    vertices_data[0] = vertices_data[1] = vertices_data[2] = 0.0;
+    nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
+        delete[] (double *) p;
+    });
+    
+    // Create empty faces array
+    int* faces_data = new int[1 * 3];
+    faces_data[0] = faces_data[1] = faces_data[2] = 0;
+    nb::capsule faces_owner(faces_data, [](void *p) noexcept {
+        delete[] (int *) p;
+    });
+    
+    return std::make_tuple(
+        vertices_array(vertices_data, { 1, 3 }, vertices_owner),
+        faces_array(faces_data, { 1, 3 }, faces_owner)
+    );
+}
+
+// // Add relaxation parameters to the surface net extraction
+// std::tuple<vertices_array, faces_array> 
+// extract_surface_net_with_relaxation(
+//     const nb::ndarray<nb::numpy, unsigned short, nb::ndim<3>, nb::c_contig>& labels_array, 
+//     const nb::ndarray<nb::numpy, float, nb::shape<3>, nb::c_contig>& voxel_size_array,
+//     int num_relax_iterations = 5,
+//     float relax_factor = 0.5,
+//     float max_dist_from_cell_center = 0.45) 
+// {
+//     // Get array dimensions
+//     int array_size[3] = {
+//         static_cast<int>(labels_array.shape(0)),
+//         static_cast<int>(labels_array.shape(1)),
+//         static_cast<int>(labels_array.shape(2))
+//     };
+    
+//     // Create Surface Net
+//     MMSurfaceNet surface_net(
+//         const_cast<unsigned short*>(labels_array.data()), // Cast away const for the API
+//         array_size,
+//         const_cast<float*>(voxel_size_array.data()) // Cast away const for the API
+//     );
+    
+//     // Set relaxation attributes
+//     MMSurfaceNet::RelaxAttrs relax_attrs;
+//     relax_attrs.numRelaxIterations = num_relax_iterations;
+//     relax_attrs.relaxFactor = relax_factor;
+//     relax_attrs.maxDistFromCellCenter = max_dist_from_cell_center;
+    
+//     // Perform relaxation
+//     surface_net.relax(relax_attrs);
+    
+//     // For now, return placeholder empty arrays
+//     // We'll implement the actual mesh extraction in the next step
+    
+//     // Create empty vertices array
+//     double* vertices_data = new double[1 * 3];
+//     vertices_data[0] = vertices_data[1] = vertices_data[2] = 0.0;
+//     nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
+//         delete[] (double *) p;
+//     });
+    
+//     // Create empty faces array
+//     int* faces_data = new int[1 * 3];
+//     faces_data[0] = faces_data[1] = faces_data[2] = 0;
+//     nb::capsule faces_owner(faces_data, [](void *p) noexcept {
+//         delete[] (int *) p;
+//     });
+    
+//     return std::make_tuple(
+//         vertices_array(vertices_data, { 1, 3 }, vertices_owner),
+//         faces_array(faces_data, { 1, 3 }, faces_owner)
+//     );
+// }
+
+// // Get unique labels from the surface net
+// nb::ndarray<nb::numpy, int> 
+// get_surface_net_labels(
+//     const nb::ndarray<nb::numpy, unsigned short, nb::ndim<3>, nb::c_contig>& labels_array, 
+//     const nb::ndarray<nb::numpy, float, nb::shape<3>, nb::c_contig>& voxel_size_array) 
+// {
+//     // Get array dimensions
+//     int array_size[3] = {
+//         static_cast<int>(labels_array.shape(0)),
+//         static_cast<int>(labels_array.shape(1)),
+//         static_cast<int>(labels_array.shape(2))
+//     };
+    
+//     // Create Surface Net
+//     MMSurfaceNet surface_net(
+//         const_cast<unsigned short*>(labels_array.data()),
+//         array_size,
+//         const_cast<float*>(voxel_size_array.data()) // Cast away const for the API
+//     );
+    
+//     // Get unique labels
+//     std::vector<int> unique_labels = surface_net.labels();
+    
+//     // Create output array
+//     size_t num_labels = unique_labels.size();
+//     int* labels_data = new int[num_labels];
+    
+//     // Copy labels to output array
+//     for (size_t i = 0; i < num_labels; i++) {
+//         labels_data[i] = unique_labels[i];
+//     }
+    
+//     // Create memory management capsule
+//     nb::capsule labels_owner(labels_data, [](void *p) noexcept {
+//         delete[] (int *) p;
+//     });
+    
+//     return nb::ndarray<nb::numpy, int>(labels_data, { num_labels }, labels_owner);
+// }
+
 // Binding code
 NB_MODULE(triangulation_cpp, m) {
     m.def("advancing_front_surface_reconstruction", 
@@ -238,4 +375,35 @@ NB_MODULE(triangulation_cpp, m) {
           "Returns: faces array (triangles defined by vertex indices)",
           nb::arg("points").noconvert(),
           nb::arg("normals").noconvert());
+          
+    // Add Surface Nets bindings
+    m.def("extract_surface_net",
+          &extract_surface_net,
+          "Extracts a surface mesh from a labeled volume using Surface Nets\n"
+          "Input: 3D array of labels (unsigned short) and 3-element array of voxel sizes\n"
+          "Returns: tuple of vertices and faces arrays",
+          nb::arg("labels").noconvert(),
+          nb::arg("voxel_size").noconvert());
+          
+    // Uncomment these when you're ready to expose these functions
+    /*
+    m.def("extract_surface_net_with_relaxation",
+          &extract_surface_net_with_relaxation,
+          "Extracts a surface mesh from a labeled volume using Surface Nets with relaxation\n"
+          "Input: 3D array of labels (unsigned short), 3-element array of voxel sizes, and relaxation parameters\n"
+          "Returns: tuple of vertices and faces arrays",
+          nb::arg("labels").noconvert(),
+          nb::arg("voxel_size").noconvert(),
+          nb::arg("num_relax_iterations") = 5,
+          nb::arg("relax_factor") = 0.5,
+          nb::arg("max_dist_from_cell_center") = 0.45);
+          
+    m.def("get_surface_net_labels",
+          &get_surface_net_labels,
+          "Gets the unique labels from a labeled volume\n"
+          "Input: 3D array of labels (unsigned short) and 3-element array of voxel sizes\n"
+          "Returns: array of unique labels",
+          nb::arg("labels").noconvert(),
+          nb::arg("voxel_size").noconvert());
+    */
 }
