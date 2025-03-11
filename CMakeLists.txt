@@ -9,6 +9,11 @@ endif()
 
 project(matgeo LANGUAGES CXX)
 
+# Set C++ standard to C++17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 if (NOT SKBUILD)
   message(WARNING "\
   This CMake file is meant to be executed using 'scikit-build'. Running
@@ -100,10 +105,19 @@ target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
 ## CGAL 
 find_package(CGAL REQUIRED)
 
+## Surface nets
+add_library(SNLib STATIC 
+    src/SNLib/MMSurfaceNet.cpp
+    src/SNLib/MMCellMap.cpp
+    src/SNLib/MMGeometryGL.cpp
+    src/SNLib/MMGeometryOBJ.cpp
+)
+target_include_directories(SNLib PUBLIC src/SNLib)
+
 # Dependencies
 add_dependencies(voronoi_cpp voro++)
-target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS})
-target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL)
+target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS} src/SNLib)
+target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL SNLib)
 
 # Install directive for scikit-build-core
 install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
