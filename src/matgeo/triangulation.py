@@ -460,6 +460,8 @@ class Triangulation(Surface) :
         if method == 'marching_cubes':
             verts, faces, normals, values = marching_cubes(volume, **kwargs)
             return Triangulation(verts, faces)
+        elif method == 'surface_nets':
+            raise NotImplementedError
         else:
             raise ValueError(f'Unknown surface extraction method: {method}')
         

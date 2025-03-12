@@ -500,8 +500,7 @@ class Ellipse(Ellipsoid):
     def get_rotation(self) -> float:
         ''' Get angle of rotation with respect to COM '''
         P, _ = self.get_axes_stretches()
-        P = P.T
-        theta = np.arctan2(P[1,0], P[0,0]) # Angle from orthogonal matrix P.T
+        theta = np.arctan2(P[0,1], P[0,0]) # Angle from orthogonal matrix P.T
         return theta
 
     def revolve_major(self, v_z: float=0.0) -> Ellipsoid:
