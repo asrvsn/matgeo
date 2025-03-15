@@ -111,3 +111,11 @@ class SurfacePartition(ABC):
         Refine edges in the partition using additional points.
         '''
         pass
+
+class SurfacePacking(ABC):
+    '''
+    Packing of non-space-filling polygons on a surface
+    '''
+    def __init__(self, surface: Surface, polygons: List[SurfacePolygon]):
+        self.surface = surface
+        self.polygons = polygons

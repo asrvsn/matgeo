@@ -12,9 +12,11 @@ from shapely.geometry.polygon import orient as shapely_orient
 from shapely.validation import explain_validity
 from scipy.spatial import ConvexHull, Voronoi
 from scipy.spatial.distance import pdist
-from skimage.morphology import binary_erosion
+from scipy.ndimage import find_objects
+from skimage.morphology import binary_erosion, binary_dilation
 import skimage
 import skimage.measure
+import upolygon
 import pdb
 import shapely
 import shapely.geometry
@@ -873,7 +875,126 @@ class PlanarPolygonPartition(SurfacePartition):
 
     def refine(self, n: int) -> 'PlanarPolygonPartition':
         raise NotImplementedError
+    
+class PlanarPolygonPacking(SurfacePacking):
+    def __init__(self, surface: PlanarPolygon, polygons: List[PlanarPolygon]):
+        super().__init__(surface, polygons)
 
+    @staticmethod
+    def from_mask(
+            mask: np.ndarray,
+            erode: int=0,
+            dilate: int=0,
+            use_chull_if_invalid: bool=False,
+            method = 'standard',
+        ) -> 'PlanarPolygonPacking':
+        '''
+        Extract polygons from mask
+        '''
+        assert mask.ndim == 2, f'Mask must be 2D, got {mask.ndim}D'
+        # assert mask.dtype == int, f'Mask must be integer type, got {mask.dtype}'
+        assert erode >= 0 and dilate >= 0, f'Erode and dilate must be non-negative, got {erode} and {dilate}'
+        assert dilate <= erode, f'Dilate must be less than or equal to erode, got {dilate} and {erode}'
+
+        def do_erosion_dilation(submask):
+            erode_n, dilate_n = erode, dilate
+            while erode_n > 0:
+                submask = binary_erosion(submask)
+                erode_n -= 1
+                if dilate_n > 0:
+                    submask = binary_dilation(submask)
+                    dilate_n -= 1
+            return submask
+        
+        polygons = []
+
+        if method == 'standard':
+            labels = np.unique(mask)
+            for label in labels:
+                submask = (mask == label)
+                submask = do_erosion_dilation(submask)
+                if not submask.any():
+                    continue
+                _, contours, __ = upolygon.find_contours(submask.astype(np.uint8))
+                for contour in contours:
+                    if len(contour) >= 6:
+                        contour = np.array(contour).reshape(-1, 2)
+                        try:
+                            poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
+                            polygons.append(poly)
+                        except Exception as e:
+                            print(f'Error creating polygon from contour: {e}')
+                            continue
+
+        elif method == 'marching_squares':
+            props = skimage.measure.regionprops(mask)
+            for prop in props:
+                if np.isclose(prop.area, 0):
+                    continue
+                submask = np.pad(prop.image, 1, mode='constant', constant_values=0)
+                submask = do_erosion_dilation(submask)
+                if not submask.any():
+                    continue
+                contour = max(skimage.measure.find_contours(submask, level=0.9), key=len)
+                if len(contour) >= 3:
+                    contour -= 1 # Remove padding
+                    for d in range(mask.ndim):
+                        contour[:, d] += prop.bbox[d]
+                    contour = np.fliplr(contour)
+                    try:
+                        poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
+                        polygons.append(poly)
+                    except Exception as e:
+                        print(f'Error creating polygon from contour: {e}')
+                        continue
+
+        else:
+            raise ValueError(f'Invalid method: {method}')
+
+        boundary = PlanarPolygon.from_shape(mask.shape)
+        return PlanarPolygonPacking(boundary, polygons)
+                        
+        # # Use find_objects to get bounding boxes of each label
+        # slices = find_objects(mask)
+        # if method == 'marching_squares':
+        #     def find_contours(submask):
+        #         contours = skimage.measure.find_contours(submask, level=0.5)
+        #         contours = [np.fliplr(c) for c in contours] # find_contours returns (y, x)
+        #         return contours
+        # elif method == 'standard':
+        #     def find_contours(submask):
+        #         _, contours, __ = upolygon.find_contours(submask.astype(np.uint8))
+        #         contours = [np.array(c).reshape(-1, 2) for c in contours]
+        #         return contours
+        # else:
+        #     raise ValueError(f'Invalid method: {method}')
+        # for label_idx, sl in enumerate(slices):
+        #     if sl is None:
+        #         continue
+        #     label = label_idx + 1
+        #     submask = (mask[sl] == label)
+        #     while erode > 0:
+        #         submask = binary_erosion(submask)
+        #         erode -= 1
+        #         if dilate > 0:
+        #             submask = binary_dilation(submask)
+        #             dilate -= 1
+        #     if not submask.any():
+        #         continue
+        #     contours = find_contours(submask)
+        #     for contour in contours:
+        #         if len(contour) >= 3:
+        #             sr, sc = sl
+        #             contour[:, 0] += sc.start
+        #             contour[:, 1] += sr.start
+        #             try:
+        #                 poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
+        #                 polygons.append(poly)
+        #             except Exception as e:
+        #                 print(f'Error creating polygon from contour: {e}')
+        #                 continue
+        # return PlanarPolygonPacking(boundary, polygons)
+            
 '''
 Utility functions
 '''
