@@ -715,6 +715,14 @@ class PlanarPolygon(SurfacePolygon, Surface):
     
     def embed_XY(self) -> 'PlanarPolygon':
         return self.embed_3d(z=0.)
+    
+    def migrate_OLD(self) -> 'PlanarPolygon':
+        '''
+        TODO: hacky fix to migrate old polygons to new format
+        '''
+        if not hasattr(self, 'vertices_nd'):
+            self.vertices_nd = self.vertices
+        return self.copy()
 
     @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':

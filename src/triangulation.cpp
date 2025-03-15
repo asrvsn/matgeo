@@ -376,7 +376,6 @@ NB_MODULE(triangulation_cpp, m) {
           nb::arg("points").noconvert(),
           nb::arg("normals").noconvert());
           
-    // Add Surface Nets bindings
     m.def("extract_surface_net",
           &extract_surface_net,
           "Extracts a surface mesh from a labeled volume using Surface Nets\n"
