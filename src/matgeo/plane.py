@@ -831,10 +831,15 @@ class PlanarPolygon(SurfacePolygon, Surface):
         return np.sqrt(PlanarPolygon.iq_ngon(n))
 
     @staticmethod
-    def area_ngon(n: int, r: float=1) -> float:
+    def area_ngon(n: int, R: float=1, mode='circumradius') -> float:
         ''' Area of regular n-gon '''
         assert n >= 3
-        return n * r ** 2 * np.sin(2 * np.pi / n) / 2
+        if mode == 'circumradius':
+            return n * R ** 2 * np.sin(2 * np.pi / n) / 2
+        elif mode in ['apothem', 'inradius']:
+            return n * R ** 2 * np.tan(np.pi / n)
+        else:
+            raise ValueError(f'Invalid mode: {mode}')
     
     @staticmethod
     def radius_ngon(n: int, a: float) -> float:
@@ -909,19 +914,22 @@ class PlanarPolygonPacking(SurfacePacking):
     def packing_fraction(self) -> float:
         return self.covered_area() / self.surface.area()
         
+    @property
+    def coms(self) -> np.ndarray:
+        return np.array([p.centroid() for p in self.polygons])
+
     @staticmethod
     def from_mask(
             mask: np.ndarray,
             erode: int=0,
             dilate: int=0,
             use_chull_if_invalid: bool=False,
-            method = 'standard',
+            method = 'marching_squares',
         ) -> 'PlanarPolygonPacking':
         '''
         Extract polygons from mask
         '''
         assert mask.ndim == 2, f'Mask must be 2D, got {mask.ndim}D'
-        # assert mask.dtype == int, f'Mask must be integer type, got {mask.dtype}'
         assert erode >= 0 and dilate >= 0, f'Erode and dilate must be non-negative, got {erode} and {dilate}'
         assert dilate <= erode, f'Dilate must be less than or equal to erode, got {dilate} and {erode}'
 
@@ -960,7 +968,7 @@ class PlanarPolygonPacking(SurfacePacking):
             for prop in props:
                 if np.isclose(prop.area, 0):
                     continue
-                submask = np.pad(prop.image, 1, mode='constant', constant_values=0)
+                submask = np.pad(prop.image, 1, mode='constant', constant_values=0) # add padding to get interior contour always
                 submask = do_erosion_dilation(submask)
                 if not submask.any():
                     continue
@@ -968,8 +976,8 @@ class PlanarPolygonPacking(SurfacePacking):
                 if len(contour) >= 3:
                     contour -= 1 # Remove padding
                     for d in range(mask.ndim):
-                        contour[:, d] += prop.bbox[d]
-                    contour = np.fliplr(contour)
+                        contour[:, d] += prop.bbox[d] # Add back bounding box offset
+                    contour = np.fliplr(contour) # find_contours returns (row, col) which is (y, x) in image coordinates
                     try:
                         poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
                         polygons.append(poly)
