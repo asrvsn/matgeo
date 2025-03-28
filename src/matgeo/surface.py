@@ -63,7 +63,7 @@ class SurfacePolygon(ABC):
         return self.nth_moment(0)
 
     def centroid(self) -> np.ndarray:
-        return self.nth_moment(1) / self.area()
+        return self.nth_moment(1, standardized=True)
     
 class SurfacePartition(ABC):
     def __init__(self, surface: Surface, vertices_nd: np.ndarray, partitions: np.ndarray, seeds_nd: np.ndarray):

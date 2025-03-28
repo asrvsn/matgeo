@@ -7,6 +7,7 @@ import numpy as np
 import cvxpy as cp
 import numpy.linalg as la
 import scipy.optimize as scopt
+import shapely
 from shapely import Polygon
 from shapely.geometry.polygon import orient as shapely_orient
 from shapely.validation import explain_validity
@@ -300,9 +301,10 @@ class PlanarPolygon(SurfacePolygon, Surface):
         '''
         Compute nth moment of area with respect to a center.
         If no center is provided, the first moment (center of mass) is used (only applicable for n >= 2).
+        Standardization indicates centralized and scale-invariant.
         '''
         if standardized:
-            assert n >= 2, 'Standardized moments are only defined for n >= 2'
+            assert n >= 1, 'Standardized moments are only defined for n >= 1'
         X = self.vertices
         if n >= 2:
             if center is None:
@@ -313,7 +315,10 @@ class PlanarPolygon(SurfacePolygon, Surface):
         if n == 0:
             return X_cross.sum() / 2
         elif n == 1:
-            return X_cross @ (X + X_) / 6
+            M1 = X_cross @ (X + X_) / 6
+            if standardized:
+                M1 /= self.area()
+            return M1
         elif n == 2:
             x, y = X.T
             x_, y_ = X_.T
@@ -382,7 +387,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
         '''
         Calculate covariance matrix of polygon.
         '''
-        return self.nth_moment(2) / self.area()
+        return self.nth_moment(2, standardized=False) / self.area()
 
     def mahalanobis_distance(self, x: np.ndarray) -> float:
         '''
@@ -391,7 +396,13 @@ class PlanarPolygon(SurfacePolygon, Surface):
         mu = self.centroid() # Center of mass
         Sigma = self.covariance_matrix()
         x_ = x - mu
-        return np.sqrt(x_ @ la.inv(Sigma) @ x_)
+        Sinv = la.inv(Sigma)
+        if x.ndim == 1:
+            return np.sqrt(x_ @ Sinv @ x_)
+        elif x.ndim == 2:
+            return np.sqrt(np.sum((x_ @ Sinv) * x_, axis=1))
+        else:
+            raise ValueError('Invalid input dimension')
 
     def aspect_ratio(self) -> float:
         '''
@@ -862,6 +873,15 @@ class PlanarPolygon(SurfacePolygon, Surface):
         w, h = wh
         return PlanarPolygon(np.array([[x - w, y - h], [x + w, y - h], [x + w, y + h], [x - w, y + h]]))
 
+    @staticmethod
+    def bounding_polygon(polys: List['PlanarPolygon']) -> 'PlanarPolygon':
+        '''
+        Compute convex hull of list of polygons
+        '''
+        assert all(p.ndim == 2 for p in polys), 'All polygons must be 2D'
+        # pdb.set_trace()
+        return PlanarPolygon.from_pointcloud(np.concatenate([p.vertices for p in polys], axis=0))
+
 class PlanarPolygonPartition(SurfacePartition):
     def __init__(self, surface: PlanarPolygon, vertices_nd: np.ndarray, partitions: np.ndarray, seeds_nd: np.ndarray):
         super().__init__(surface, vertices_nd, partitions, seeds_nd)
@@ -877,9 +897,18 @@ class PlanarPolygonPartition(SurfacePartition):
         raise NotImplementedError
     
 class PlanarPolygonPacking(SurfacePacking):
+
     def __init__(self, surface: PlanarPolygon, polygons: List[PlanarPolygon]):
         super().__init__(surface, polygons)
 
+    def covered_area(self) -> float:
+        ''' Accounts for overlapping polygons '''
+        ps = [p.to_shapely() for p in self.polygons]
+        return shapely.unary_union(ps).area
+
+    def packing_fraction(self) -> float:
+        return self.covered_area() / self.surface.area()
+        
     @staticmethod
     def from_mask(
             mask: np.ndarray,
@@ -1214,7 +1243,7 @@ if __name__ == '__main__':
         S = poly.nth_moment(2)
         r = PlanarPolygon.radius_ngon(n, poly.area())
         S0 = PlanarPolygon.second_moment_ngon(n, r=r)
-        pdb.set_trace()
+        # pdb.set_trace()
         assert np.allclose(S, S0), f'second moment of whitened random {n}-gon != regular n-gon'
     print('Aspect ratio of whitened random polygons is approximately 1 and second moment is correct.')
 

@@ -18,6 +18,7 @@ import multiprocessing as mp
 import pickle
 import alphashape
 from collections import defaultdict
+import trimesh
 
 import matgeo.triangulation_cpp as tri_cpp
 from .surface import *
@@ -153,6 +154,28 @@ class Triangulation(Surface) :
     def voronoi_tessellate(self, seeds: np.ndarray) -> Tuple[List[PlanarPolygon], np.ndarray]:
         raise NotImplementedError('Voronoi tessellation not implemented')
     
+    def get_connected_components(self, only_watertight: bool=False) -> List['Triangulation']:
+        '''
+        Get the connected components of the triangulation
+        '''
+        mesh = trimesh.Trimesh(vertices=self.pts, faces=self.simplices)
+        components = mesh.split(only_watertight=only_watertight)
+        return [Triangulation(component.vertices, component.faces) for component in components]
+    
+    def get_centroid(self) -> np.ndarray:
+        '''
+        Get the centroid of the triangulation
+        '''
+        return self.pts.mean(axis=0)
+    
+    def label_connected_components(self) -> np.ndarray:
+        '''
+        Label the connected components of the triangulation
+        '''
+        mesh = trimesh.Trimesh(vertices=self.pts, faces=self.simplices)
+        components_labels = mesh.face_adjacency_graph.split(return_labels=True)
+        return np.array(components_labels, dtype=int)
+
     def orient_outward(self, origin: np.ndarray):
         '''
         Orient the simplices so their cross product is outward-pointing with respect to reference point
@@ -486,6 +509,25 @@ class Triangulation(Surface) :
         simplices = Delaunay(poly.vertices).simplices # TODO: use constrained delaunay
         vertices = np.hstack((poly.vertices, np.full((poly.vertices.shape[0], 1), z)))
         return Triangulation(vertices, simplices)
+    
+    @staticmethod
+    def merge(tris: List['Triangulation']) -> 'Triangulation':
+        '''
+        Merge a list of triangulations into a single triangulation
+        '''
+        all_pts = []
+        all_simplices = []
+        offset = 0
+        for tri in tris:
+            all_pts.append(tri.pts)
+            # Adjust simplex indices by the current offset
+            adjusted_simplices = tri.simplices + offset
+            all_simplices.append(adjusted_simplices)
+            # Update the offset for the next triangulation
+            offset += tri.pts.shape[0]
+        pts = np.concatenate(all_pts)
+        simplices = np.concatenate(all_simplices)
+        return Triangulation(pts, simplices)
     
 class ConvexTriangulation(Triangulation):
     ''' Triangulated convex hull '''
