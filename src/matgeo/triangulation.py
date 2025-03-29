@@ -53,7 +53,11 @@ class Triangulation(Surface) :
     @property
     def n(self):
         return self.pts.shape[0]
-
+    
+    @property
+    def n_simplices(self):
+        return self.simplices.shape[0]
+    
     @property
     def ndim(self):
         return self.pts.shape[1]
@@ -439,15 +443,30 @@ class Triangulation(Surface) :
         pts = self.pts[hull.vertices]
         hull = ConvexHull(pts) # Avoid taking memory with tons of points
         return ConvexTriangulation(hull)
+    
+    def remove_edge(self, i: int, j: int) -> 'Triangulation':
+        '''
+        Remove the edge between vertices i and j
+        '''
+        mask = np.full(self.n_simplices, True)
+        for si, simplex in enumerate(self.simplices):
+            if i in simplex and j in simplex:
+                mask[si] = False
+        return Triangulation(self.pts.copy(), self.simplices.copy()[mask])
+    
+    def remove_nodes(self, indices: list) -> 'Triangulation':
+        '''
+        Remove the nodes at the given indices
+        '''
+        raise NotImplementedError
 
-    def export(self, folder: str, name: str):
+    def export(self, basename: str):
         '''
         Export the triangulation as (vertices, triangles) 
         '''
-        assert os.path.isdir(folder), f'Folder {folder} does not exist'
-        np.savetxt(os.path.join(folder, f'{name}.vertices.txt'), self.pts)
-        np.savetxt(os.path.join(folder, f'{name}.triangles.txt'), self.simplices, fmt='%d')
-        print(f'Exported {self.pts.shape[0]} vertices and {self.simplices.shape[0]} triangles to {folder}')
+        np.savetxt(f'{basename}.vertices.txt', self.pts)
+        np.savetxt(f'{basename}.triangles.txt', self.simplices, fmt='%d')
+        print(f'Exported {self.pts.shape[0]} vertices and {self.simplices.shape[0]} triangles to {basename}')
 
     @staticmethod
     def surface_3d(pts: np.ndarray, method='advancing_front', orient: bool=False, **kwargs) -> 'Triangulation':
