@@ -499,8 +499,10 @@ class Triangulation(Surface) :
             return Triangulation(verts, faces)
         elif method == 'voronoi_otsu':
             mask = cle.voronoi_otsu_labeling(volume, **kwargs).get() # Convert to numpy array
+            if 'spot_sigma' in kwargs:
+                del kwargs['spot_sigma']
             # return Triangulation.from_mask(mask, spacing=spacing)
-            return Triangulation.from_volume(volume, method='marching_cubes', spacing=spacing, level=0.5, **kwargs)
+            return Triangulation.from_volume((mask != 0).astype(np.uint16), method='marching_cubes', spacing=spacing, level=0.5, **kwargs)
         else:
             raise ValueError(f'Unknown surface extraction method: {method}')
         
