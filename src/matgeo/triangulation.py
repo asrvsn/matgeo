@@ -453,12 +453,6 @@ class Triangulation(Surface) :
             if i in simplex and j in simplex:
                 mask[si] = False
         return Triangulation(self.pts.copy(), self.simplices.copy()[mask])
-    
-    def remove_nodes(self, indices: list) -> 'Triangulation':
-        '''
-        Remove the nodes at the given indices
-        '''
-        raise NotImplementedError
 
     def export(self, basename: str):
         '''
