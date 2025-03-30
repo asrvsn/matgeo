@@ -1,12 +1,13 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/tuple.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Advancing_front_surface_reconstruction.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/poisson_surface_reconstruction.h>
 #include <CGAL/compute_average_spacing.h>
 #include "MMSurfaceNet.h"
-
+#include "MMGeometryGL.h"
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef Kernel::Point_3 Point;
 typedef CGAL::Surface_mesh<Point> Mesh;
@@ -15,7 +16,7 @@ typedef Mesh::Vertex_index vertex_descriptor;
 namespace nb = nanobind;
 
 using vertices_array = nb::ndarray<nb::numpy, double, nb::ndim<2>>;
-using faces_array = nb::ndarray<nb::numpy, int, nb::ndim<2>>;
+using faces_array = nb::ndarray<nb::numpy, unsigned int, nb::ndim<2>>;
 
 // Mesh builder class for incremental surface reconstruction
 // Handles vertex addition and face creation using vertex indices
@@ -115,12 +116,12 @@ vertices_array mesh_to_vertices(const Mesh& mesh) {
 faces_array mesh_to_faces(const Mesh& mesh) {
     size_t n_faces = mesh.number_of_faces();
     
-    // Allocate raw array
-    int* faces_data = new int[n_faces * 3];
+    // Allocate raw array with the correct type
+    unsigned int* faces_data = new unsigned int[n_faces * 3];
 
     // Create memory management capsule
     nb::capsule faces_owner(faces_data, [](void *p) noexcept {
-        delete[] (int *) p;
+        delete[] (unsigned int *) p;
     });
 
     // Fill faces using vertex indices
@@ -128,7 +129,7 @@ faces_array mesh_to_faces(const Mesh& mesh) {
         size_t face_idx = f.idx();
         int i = 0;
         for (vertex_descriptor v : vertices_around_face(mesh.halfedge(f), mesh)) {
-            faces_data[face_idx * 3 + i] = static_cast<int>(v.idx());
+            faces_data[face_idx * 3 + i] = static_cast<unsigned int>(v.idx());
             i++;
         }
     }
@@ -240,27 +241,42 @@ extract_surface_net(
         array_size,
         voxel_size
     );
+
+     // Create MMGeometryGL to convert the surface net to vertex and index arrays
+    MMGeometryGL geometry(&surface_net);
+
+    // Get the vertex and index data from the geometry
+    size_t num_vertices = static_cast<size_t>(geometry.numVertices());
+    size_t num_indices = static_cast<size_t>(geometry.numIndices());
+    float* gl_vertices = geometry.vertices();
+    unsigned int* gl_indices = geometry.indices();
     
-    // For now, return placeholder empty arrays
-    // We'll implement the actual mesh extraction in the next step
-    
-    // Create empty vertices array
-    double* vertices_data = new double[1 * 3];
-    vertices_data[0] = vertices_data[1] = vertices_data[2] = 0.0;
+    // Create vertices array (extract positions from the GL vertices)
+    double* vertices_data = new double[num_vertices * 3];
     nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
         delete[] (double *) p;
     });
+
+    // Extract positions from GL vertices - use direct indexing for efficiency
+    for (size_t i = 0, v_idx = 0, gl_idx = 0; i < num_vertices; i++, gl_idx += 8) {
+        vertices_data[v_idx++] = gl_vertices[gl_idx];     // pos[0]
+        vertices_data[v_idx++] = gl_vertices[gl_idx + 1]; // pos[1]
+        vertices_data[v_idx++] = gl_vertices[gl_idx + 2]; // pos[2]
+    }
     
-    // Create empty faces array
-    int* faces_data = new int[1 * 3];
-    faces_data[0] = faces_data[1] = faces_data[2] = 0;
+    // Create faces array (indices are already in triangle format)
+    size_t num_triangles = num_indices / 3;
+    unsigned int* faces_data = new unsigned int[num_indices];
     nb::capsule faces_owner(faces_data, [](void *p) noexcept {
-        delete[] (int *) p;
+        delete[] (unsigned int *) p;
     });
     
-    return std::make_tuple(
-        vertices_array(vertices_data, { 1, 3 }, vertices_owner),
-        faces_array(faces_data, { 1, 3 }, faces_owner)
+    // Copy indices - use memcpy for efficiency since types match
+    std::memcpy(faces_data, gl_indices, num_indices * sizeof(unsigned int));
+    
+    return std::tuple<vertices_array, faces_array>(
+        vertices_array(vertices_data, { num_vertices, 3 }, vertices_owner),
+        faces_array(faces_data, { num_triangles, 3 }, faces_owner)
     );
 }
 
@@ -382,7 +398,7 @@ NB_MODULE(triangulation_cpp, m) {
           "Input: 3D array of labels (unsigned short) and 3-element array of voxel sizes\n"
           "Returns: tuple of vertices and faces arrays",
           nb::arg("labels").noconvert(),
-          nb::arg("voxel_size").noconvert());
+          nb::arg("voxel_size"));
           
     // Uncomment these when you're ready to expose these functions
     /*

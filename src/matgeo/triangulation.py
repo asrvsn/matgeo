@@ -19,6 +19,7 @@ import pickle
 import alphashape
 from collections import defaultdict
 import trimesh
+import pyclesperanto_prototype as cle
 
 import matgeo.triangulation_cpp as tri_cpp
 from .surface import *
@@ -489,17 +490,29 @@ class Triangulation(Surface) :
         return tri
     
     @staticmethod
-    def from_volume(volume: np.ndarray, method='marching_cubes', **kwargs) -> 'Triangulation':
+    def from_volume(volume: np.ndarray, method='marching_cubes', spacing=np.array([1., 1., 1.]), **kwargs) -> 'Triangulation':
         '''
         Extract a surface triangulation from a 3d volume
         '''
         if method == 'marching_cubes':
-            verts, faces, normals, values = marching_cubes(volume, **kwargs)
+            verts, faces, normals, values = marching_cubes(volume, spacing=spacing, **kwargs)
             return Triangulation(verts, faces)
-        elif method == 'surface_nets':
-            raise NotImplementedError
+        elif method == 'voronoi_otsu':
+            mask = cle.voronoi_otsu_labeling(volume, **kwargs).get() # Convert to numpy array
+            # return Triangulation.from_mask(mask, spacing=spacing)
+            return Triangulation.from_volume(volume, method='marching_cubes', spacing=spacing, level=0.5, **kwargs)
         else:
             raise ValueError(f'Unknown surface extraction method: {method}')
+        
+    @staticmethod
+    def from_mask(mask: np.ndarray, spacing=np.array([1., 1., 1.])) -> 'Triangulation':
+        '''
+        Extract a surface triangulation from a mask using Surface Nets algorithm
+        '''
+        mask = mask.astype(np.uint16)
+        spacing = np.array(spacing, dtype=np.float32)
+        verts, faces = tri_cpp.extract_surface_net(mask, spacing)
+        return Triangulation(verts, faces)
         
     @staticmethod
     def periodic_delaunay(pts: np.ndarray, box: np.ndarray) -> 'Triangulation':
