@@ -454,7 +454,15 @@ class Triangulation(Surface) :
             if i in simplex and j in simplex:
                 mask[si] = False
         return Triangulation(self.pts.copy(), self.simplices.copy()[mask])
-
+    
+    def rescale(self, scale: float) -> 'Triangulation':
+        '''
+        Rescale the triangulation by a factor of scale
+        '''
+        pts = self.pts * scale
+        simplices = self.simplices.copy()
+        return Triangulation(pts, simplices)
+    
     def export(self, basename: str):
         '''
         Export the triangulation as (vertices, triangles) 

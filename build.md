@@ -22,3 +22,14 @@ It's going to fail the first time. Run it again.
 ```bash
 pip install --no-build-isolation -ve .
 ```
+
+# 3. Dealing with `pyopencl` issues on
+
+If you run into
+```bash
+pyopencl._cl.LogicError: clGetPlatformIDs failed: PLATFORM_NOT_FOUND_KHR
+```
+ensure `pyopencl` is installed and if on macOS run:
+```bash
+mamba install ocl_icd_wrapper_apple
+```
