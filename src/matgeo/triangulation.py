@@ -193,35 +193,14 @@ class Triangulation(Surface) :
 
     def orient(self):
         '''
-        Orient in-place using topology only
+        Orient the triangulation consistently in-place using trimesh
         '''
-        # Create an adjacency list
-        adj_list = defaultdict(list)
-        for i, (a, b, c) in enumerate(self.simplices):
-            adj_list[frozenset([a, b])].append(i)
-            adj_list[frozenset([b, c])].append(i)
-            adj_list[frozenset([c, a])].append(i)
-
-        # Initialize
-        N = len(self.simplices)
-        oriented = np.zeros(N, dtype=bool)
-        queue = [0]  # Start with the first face
-        oriented[0] = True
-
-        while queue:
-            face_idx = queue.pop(0)
-            a, b, c = self.simplices[face_idx]
-
-            for edge in [(a, b), (b, c), (c, a)]:
-                neighbor_indices = adj_list[frozenset(edge)]
-                for neighbor_idx in neighbor_indices:
-                    if neighbor_idx != face_idx and not oriented[neighbor_idx]:
-                        # Orient the neighboring face
-                        neighbor = self.simplices[neighbor_idx]
-                        if np.where(neighbor == edge[0])[0][0] == np.where(neighbor == edge[1])[0][0] - 1:
-                            self.simplices[neighbor_idx] = neighbor[::-1]  # Reverse the face
-                        oriented[neighbor_idx] = True
-                        queue.append(neighbor_idx)
+        mesh = trimesh.Trimesh(vertices=self.pts, faces=self.simplices)
+        mesh.fix_normals()
+        self.simplices = mesh.faces.copy()
+        # Clear any cached incidence structure since we modified the simplices
+        self.incidence = None
+        self.edges = None
 
     def flip_orientation(self):
         '''
@@ -498,6 +477,13 @@ class Triangulation(Surface) :
         return tri
     
     @staticmethod
+    def from_convex_hull(pts: np.ndarray) -> 'ConvexTriangulation':
+        '''
+        Extract a surface triangulation from a convex hull
+        '''
+        return ConvexTriangulation(ConvexHull(pts))
+    
+    @staticmethod
     def from_volume(volume: np.ndarray, method='marching_cubes', spacing=np.array([1., 1., 1.]), **kwargs) -> 'Triangulation':
         '''
         Extract a surface triangulation from a 3d volume
@@ -571,6 +557,7 @@ class ConvexTriangulation(Triangulation):
     def __init__(self, hull: ConvexHull):
         self.hull = hull
         super().__init__(hull.points, hull.simplices)
+        self.orient() # Chull generally gives a non-consistent orientation
 
     def project_z(self, X: np.ndarray) -> np.ndarray:
         '''
