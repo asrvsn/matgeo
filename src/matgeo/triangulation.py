@@ -528,8 +528,10 @@ class Triangulation(Surface) :
         Ensures consistent orientation of simplices so normals are in positive z direction.
         '''
         assert poly.ndim == 2, 'Unclear how to orient polygon in higher dimensions'
-        simplices = Delaunay(poly.vertices).simplices # TODO: use constrained delaunay
-        vertices = np.hstack((poly.vertices, np.full((poly.vertices.shape[0], 1), z)))
+        centroid = poly.centroid()
+        vertices = np.vstack((poly.vertices, centroid[None]))  # Add centroid as last vertex to make better triangles
+        simplices = Delaunay(vertices).simplices # TODO: use constrained delaunay
+        vertices = np.hstack((vertices, np.full((vertices.shape[0], 1), z)))
         return Triangulation(vertices, simplices)
     
     @staticmethod

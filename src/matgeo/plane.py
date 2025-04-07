@@ -2,7 +2,7 @@
 Functions for fitting planes to data.
 '''
 
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Union
 import numpy as np
 import cvxpy as cp
 import numpy.linalg as la
@@ -12,7 +12,7 @@ from shapely import Polygon
 from shapely.geometry.polygon import orient as shapely_orient
 from shapely.validation import explain_validity
 from scipy.spatial import ConvexHull, Voronoi
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, cdist
 from scipy.ndimage import find_objects
 from skimage.morphology import binary_erosion, binary_dilation
 import skimage
@@ -184,8 +184,12 @@ class Plane(Surface):
         partitions = [r for r in vor.regions if len(r) > 0 and not (-1 in r)]
         vertices = self.reverse_embed(vor.vertices)
         return PlanePartition(
-            self, vertices, partitions, seeds
+            self.copy(), vertices, partitions, seeds
         )
+    
+    def __eq__(self, other: 'Plane') -> bool:
+        ''' Check if two planes are equal '''
+        return np.allclose(self.n, other.n) and np.allclose(self.v, other.v)
 
     @property
     def ndim(self) -> int:
@@ -288,6 +292,10 @@ class PlanarPolygon(SurfacePolygon, Surface):
         ''' Normal vector of the plane '''
         assert self.ndim > 2, 'Normal vector is only defined in dimension d > 2'
         return self.plane.n
+    
+    def __eq__(self, other: 'PlanarPolygon') -> bool:
+        ''' Check if two polygons are equal '''
+        return self.plane == other.plane and np.allclose(self.vertices_nd, other.vertices_nd)
     
     def flip(self):
         ''' Flip the normal vector of the plane '''
@@ -627,6 +635,17 @@ class PlanarPolygon(SurfacePolygon, Surface):
             return []
         inter = to_simple_polygons(inter)
         return [PlanarPolygon.from_shapely(p) for p in inter]
+    
+    def single_intersection(self, other: 'PlanarPolygon') -> 'PlanarPolygon':
+        ''' Intersection of two polygons '''
+        ps = self.intersection(other)
+        assert len(ps) == 1, f'Expected single intersection, got {len(ps)}'
+        return ps[0]
+    
+    def intersection_area(self, other: 'PlanarPolygon') -> float:
+        ''' Intersection area of two polygons '''
+        assert self.ndim == 2 and other.ndim == 2
+        return self.to_shapely().intersection(other.to_shapely()).area
         
     def match_ellipse(self, ellipse) -> 'PlanarPolygon':
         ''' Match polygon center, area, and aspect ratio to the ellipse '''
@@ -668,10 +687,18 @@ class PlanarPolygon(SurfacePolygon, Surface):
         assert self.ndim == 2
         return self.to_shapely().bounds
 
-    def contains(self, x: np.ndarray) -> bool:
+    def contains(self, x: np.ndarray) -> Union[bool, np.ndarray]:
         ''' Check if point is contained in polygon '''
         assert self.ndim == 2
-        return self.to_shapely().contains(shapely.geometry.Point(x))
+        if x.ndim == 1:
+            assert x.shape[0] == self.ndim, f'Expected point to have {self.ndim} dimensions, got {x.shape[0]} dimensions'
+            return self.to_shapely().contains(shapely.geometry.Point(x))
+        elif x.ndim == 2:
+            assert x.shape[1] == self.ndim, f'Expected points to have {self.ndim} dimensions, got {x.shape[1]} dimensions'
+            sp = self.to_shapely()
+            return np.array([sp.contains(shapely.geometry.Point(x_i)) for x_i in x])
+        else:
+            raise ValueError(f'Expected 1D or 2D array, got {x.ndim}D array')
     
     def shape_index(self) -> float:
         return self.perimeter() / np.sqrt(self.area())
@@ -933,6 +960,10 @@ class PlanarPolygonPacking(SurfacePacking):
     @property
     def coms(self) -> np.ndarray:
         return np.array([p.centroid() for p in self.polygons])
+    
+    @property
+    def areas(self) -> np.ndarray:
+        return np.array([p.area() for p in self.polygons])
 
     @staticmethod
     def from_mask(
@@ -1007,49 +1038,43 @@ class PlanarPolygonPacking(SurfacePacking):
 
         if boundary is None:
             boundary = PlanarPolygon.from_shape(mask.shape)
+        assert boundary.ndim == 2
         return PlanarPolygonPacking(boundary, polygons)
                         
-        # # Use find_objects to get bounding boxes of each label
-        # slices = find_objects(mask)
-        # if method == 'marching_squares':
-        #     def find_contours(submask):
-        #         contours = skimage.measure.find_contours(submask, level=0.5)
-        #         contours = [np.fliplr(c) for c in contours] # find_contours returns (y, x)
-        #         return contours
-        # elif method == 'standard':
-        #     def find_contours(submask):
-        #         _, contours, __ = upolygon.find_contours(submask.astype(np.uint8))
-        #         contours = [np.array(c).reshape(-1, 2) for c in contours]
-        #         return contours
-        # else:
-        #     raise ValueError(f'Invalid method: {method}')
-        # for label_idx, sl in enumerate(slices):
-        #     if sl is None:
-        #         continue
-        #     label = label_idx + 1
-        #     submask = (mask[sl] == label)
-        #     while erode > 0:
-        #         submask = binary_erosion(submask)
-        #         erode -= 1
-        #         if dilate > 0:
-        #             submask = binary_dilation(submask)
-        #             dilate -= 1
-        #     if not submask.any():
-        #         continue
-        #     contours = find_contours(submask)
-        #     for contour in contours:
-        #         if len(contour) >= 3:
-        #             sr, sc = sl
-        #             contour[:, 0] += sc.start
-        #             contour[:, 1] += sr.start
-        #             try:
-        #                 poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
-        #                 polygons.append(poly)
-        #             except Exception as e:
-        #                 print(f'Error creating polygon from contour: {e}')
-        #                 continue
-        # return PlanarPolygonPacking(boundary, polygons)
-            
+    @staticmethod
+    def match_by_containment(
+            container: 'PlanarPolygonPacking',  
+            containee: 'PlanarPolygonPacking',
+            min_frac: float=0.9,
+        ) -> Tuple['PlanarPolygonPacking', 'PlanarPolygonPacking']:
+        '''
+        Match containee to container by containment
+        '''
+        assert container.surface.ndim == containee.surface.ndim == 2
+        assert container.surface == containee.surface, 'container and containee must be on the same surface'
+        seen = set() # Set of seen containee polygons
+        container_mask = np.zeros(container.n_polygons, dtype=bool)
+        containee_areas = containee.areas
+        containee_indices = []
+        for i, poly_i in enumerate(container.polygons):
+            j_i = None
+            max_frac = 0
+            for j, poly_j in enumerate(containee.polygons):
+                if j in seen:
+                    continue
+                frac = poly_i.intersection_area(poly_j) / containee_areas[j]
+                if frac > max_frac:
+                    max_frac = frac
+                    j_i = j
+            if max_frac > min_frac:
+                container_mask[i] = True
+                containee_indices.append(j_i)
+                seen.add(j_i)
+        containee_indices = np.array(containee_indices, dtype=np.intp)
+        assert container_mask.sum() == containee_indices.shape[0], f'Number of containee indices != number of container polygons'
+        container = container.select(container_mask)
+        containee = containee.select(containee_indices)
+        return container, containee
 '''
 Utility functions
 '''

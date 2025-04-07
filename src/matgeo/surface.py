@@ -20,6 +20,11 @@ class Surface(ABC):
         ''' Compute the geodesic Voronoi tessellation '''
         pass
 
+    @abstractmethod
+    def __eq__(self, other: 'Surface') -> bool:
+        ''' Check if two surfaces are equal '''
+        pass
+
 class SurfacePolygon(ABC):
     '''
     Polygon represented by vertices on a 2D surface, connected by geodesics on that surface.
@@ -42,10 +47,15 @@ class SurfacePolygon(ABC):
     def ndim(self) -> int:
         ''' Dimension of ambient space '''
         return self.vertices_nd.shape[1]
-    
+        
     def save(self, path: str) -> None:
         ''' Save polygon to file '''
         np.save(path, self.vertices_nd)
+
+    @abstractmethod
+    def __eq__(self, other: 'SurfacePolygon') -> bool:
+        ''' Check if two polygons are equal '''
+        pass
 
     @abstractmethod
     def load(self, path: str) -> 'SurfacePolygon':
@@ -119,3 +129,15 @@ class SurfacePacking(ABC):
     def __init__(self, surface: Surface, polygons: List[SurfacePolygon]):
         self.surface = surface
         self.polygons = polygons
+
+    @property
+    def n_polygons(self) -> int:
+        ''' Number of polygons in the packing '''
+        return len(self.polygons)
+    
+    def voronoi_tessellate_centroids(self) -> 'SurfacePartition':
+        '''
+        Voronoi tessellate the centroids of the polygons
+        '''
+        centroids = np.array([p.centroid() for p in self.polygons])
+        return self.surface.voronoi_tessellate(centroids)

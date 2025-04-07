@@ -21,6 +21,10 @@ class Ellipsoid(Surface):
         self.M = M # Inner product
         self.v = v # Center
 
+    def __eq__(self, other: 'Ellipsoid') -> bool:
+        ''' Check if two ellipsoids are equal '''
+        return np.allclose(self.M, other.M) and np.allclose(self.v, other.v)
+
     @staticmethod
     def fit_outer(points: np.ndarray) -> 'Ellipsoid':
         ''' Fit minimum-volume ellipsoid containing the given points using DCP '''
@@ -314,9 +318,11 @@ class Ellipsoid(Surface):
         ''' Rescale the polygon to a given resolution, with origin in the original basis of the coordinates '''
         assert scale.ndim == 1, 'scale must be 1d'
         assert scale.shape[0] == self.ndim, 'scale must have same dimension as ellipsoid'
-        v = self.v / scale
-        # Apply transformation so if x^T M x = 1, then (x/scale)^T M' (x/scale) = 1
-        M = self.M * scale[:, None] * scale[None, :]
+        assert np.all(scale > 0), 'scale must be positive'
+        v = self.v * scale
+        # Apply transformation so if x^T M x = 1, then (x*scale)^T M' (x*scale) = 1
+        scaleinv = np.diag(1/scale)
+        M = scaleinv @ self.M @ scaleinv
         return Ellipsoid(M, v)
     
     def center(self) -> 'Ellipsoid':
