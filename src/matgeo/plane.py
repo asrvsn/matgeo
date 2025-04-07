@@ -69,6 +69,9 @@ class Plane(Surface):
     def __sub__(self, v: np.ndarray) -> 'Plane':
         ''' Translate the plane '''
         return Plane(self.n, self.v - v)
+    
+    def copy(self) -> 'Plane':
+        return Plane(self.n.copy(), self.v.copy(), basis=self.basis.copy())
 
     @staticmethod
     def fit_l2(X: np.ndarray, tol=1e-3) -> 'Plane':
@@ -561,11 +564,12 @@ class PlanarPolygon(SurfacePolygon, Surface):
         assert area >= 0
         return self * np.sqrt(area / self.area())
 
-    def set_res(self, xres: float, yres: float) -> 'PlanarPolygon':
+    def rescale(self, xyres: np.ndarray) -> 'PlanarPolygon':
         ''' Rescale the polygon to a given resolution, with origin in the original basis of the coordinates '''
         assert self.ndim == 2
+        assert xyres.ndim == 1 and xyres.shape[0] == 2
         poly = self.copy()
-        poly.vertices *= np.array([xres, yres])
+        poly.vertices *= xyres
         return poly
     
     def flipxy(self) -> 'PlanarPolygon':
@@ -588,7 +592,8 @@ class PlanarPolygon(SurfacePolygon, Surface):
         return PlanarPolygon(vertices)
 
     def copy(self) -> 'PlanarPolygon':
-        return PlanarPolygon(self.vertices_nd.copy(), check=False) # Assume I am already valid
+        plane = None if self.plane is None else self.plane.copy()
+        return PlanarPolygon(self.vertices_nd.copy(), plane=plane, check=False) # Assume I am already valid
     
     def transform(self, A: np.ndarray, center: np.ndarray=None) -> 'PlanarPolygon':
         '''
@@ -735,6 +740,9 @@ class PlanarPolygon(SurfacePolygon, Surface):
         '''
         if not hasattr(self, 'vertices_nd'):
             self.vertices_nd = self.vertices
+        if not hasattr(self, 'surface'):
+            assert self.ndim == 2
+            self.surface = None
         return self.copy()
 
     @staticmethod
@@ -913,6 +921,14 @@ class PlanarPolygonPacking(SurfacePacking):
 
     def packing_fraction(self) -> float:
         return self.covered_area() / self.surface.area()
+    
+    def rescale(self, xyres: np.ndarray) -> 'PlanarPolygonPacking':
+        ''' Rescale the packing to a given resolution, with origin in the original basis of the coordinates '''
+        assert xyres.ndim == 1 and xyres.shape[0] == 2
+        return PlanarPolygonPacking(self.surface.rescale(xyres), [p.rescale(xyres) for p in self.polygons])
+        
+    def copy(self) -> 'PlanarPolygonPacking':
+        return PlanarPolygonPacking(self.surface.copy(), [p.copy() for p in self.polygons])
         
     @property
     def coms(self) -> np.ndarray:
@@ -925,6 +941,7 @@ class PlanarPolygonPacking(SurfacePacking):
             dilate: int=0,
             use_chull_if_invalid: bool=False,
             method = 'marching_squares',
+            boundary = None,
         ) -> 'PlanarPolygonPacking':
         '''
         Extract polygons from mask
@@ -988,7 +1005,8 @@ class PlanarPolygonPacking(SurfacePacking):
         else:
             raise ValueError(f'Invalid method: {method}')
 
-        boundary = PlanarPolygon.from_shape(mask.shape)
+        if boundary is None:
+            boundary = PlanarPolygon.from_shape(mask.shape)
         return PlanarPolygonPacking(boundary, polygons)
                         
         # # Use find_objects to get bounding boxes of each label
