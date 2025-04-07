@@ -510,12 +510,21 @@ class Ellipse(Ellipsoid):
         return theta
 
     def revolve_major(self, v_z: float=0.0) -> Ellipsoid:
+        ''' Revolve about major axis '''
+        return self.revolve(0, v_z)
+    
+    def revolve_minor(self, v_z: float=0.0) -> Ellipsoid:
+        ''' Revolve about minor axis '''
+        return self.revolve(1, v_z)
+    
+    def revolve(self, axis: int, v_z: float=0.0) -> Ellipsoid:
         '''
-        Transform 2D ellipse to 3D ellipsoid using major axis as axis of rotation
+        Transform 2D ellipse to 3D ellipsoid using specified axis as axis of rotation
         (defaults to z-coordinate in the XY plane)
         '''
+        assert axis in [0, 1], 'axis of revolution must be major or minor axis'
         L, P = la.eigh(self.M)
-        L_ = np.array([L[0], L[1], L[1]]) # Minor axis repeats
+        L_ = np.array([L[0], L[1], L[1-axis]]) # Eigenvalues in ascending order
         P_ = np.zeros((3, 3))
         P_[:2, :2] = P # Original eigenvectors remain in plane
         P_[:, 2] = np.array([0, 0, 1]) # New eigenvector is z-axis
@@ -531,6 +540,10 @@ class Ellipse(Ellipsoid):
     def from_poly(poly: PlanarPolygon) -> 'Ellipse':
         return Ellipse.from_ellipsoid(Ellipsoid.from_poly(poly))
     
+    @staticmethod
+    def random(*args, **kwargs) -> 'Ellipse':
+        return Ellipse.from_ellipsoid(Ellipsoid.random(*args, **kwargs))
+    
 if __name__ == '__main__':
 
     ''' Tests '''
@@ -544,52 +557,67 @@ if __name__ == '__main__':
         assert np.isclose(area, ell_.area()), 'Area of rescaled ellipsoid must match input area'
     print('Passed area matching test.')
 
-    import matplotlib.pyplot as plt
-    import mpl_tools as pt
+    # Test revolve
+    for _ in range(1000):
+        ell = Ellipse.random(sigma=100, d=2)
+        ell1 = ell.revolve_major()
+        ell2 = ell.revolve_minor()
+        major, minor = ell.get_radii()
+        assert major > minor
+        c = np.pi * 4/3
+        try:
+            assert np.isclose(ell1.volume(), c * major * minor**2)
+            assert np.isclose(ell2.volume(), c * major**2 * minor)
+        except AssertionError:
+            pdb.set_trace()
+    print('Passed revolve test.')
+
+    # import matplotlib.pyplot as plt
+    # import mpl_tools as pt
     
-    # Sample randomly points on a sphere
-    N = 1000
-    X = np.random.randn(N, 3)
-    X /= np.linalg.norm(X, axis=1, keepdims=True)
+    # # Sample randomly points on a sphere
+    # N = 1000
+    # X = np.random.randn(N, 3)
+    # X /= np.linalg.norm(X, axis=1, keepdims=True)
 
-    # Apply random stretches
-    rs = np.random.uniform(0.5, 3, size=(3,))
-    X = X * rs
+    # # Apply random stretches
+    # rs = np.random.uniform(0.5, 3, size=(3,))
+    # X = X * rs
 
-    # Apply random rotation
-    R = np.random.randn(3, 3) * 5
-    R, _ = np.linalg.qr(R)
-    X = X @ R.T
+    # # Apply random rotation
+    # R = np.random.randn(3, 3) * 5
+    # R, _ = np.linalg.qr(R)
+    # X = X @ R.T
 
-    # Apply random translation
-    v = np.random.randn(3) * 5
-    X = X + v
+    # # Apply random translation
+    # v = np.random.randn(3) * 5
+    # X = X + v
 
-    # Add noise
-    X = X + np.random.normal(0, 0.1, size=X.shape)
+    # # Add noise
+    # X = X + np.random.normal(0, 0.1, size=X.shape)
 
-    # Fit ellipsoid
-    # ell = Ellipsoid.fit_outer(X)
-    ell = Ellipsoid.fit_outer_iterative(X, tol=1e-3)
-    # ell = Ellipsoid.fit_l2(X)
-    plane = ell.get_major_plane()
-    print('Fit outer ellipsoid.')
+    # # Fit ellipsoid
+    # # ell = Ellipsoid.fit_outer(X)
+    # ell = Ellipsoid.fit_outer_iterative(X, tol=1e-3)
+    # # ell = Ellipsoid.fit_l2(X)
+    # plane = ell.get_major_plane()
+    # print('Fit outer ellipsoid.')
 
-    # Project to ellipsoid
-    Y = ell.project_l2(X)
-    print('Projected points to ellipsoid.')
+    # # Project to ellipsoid
+    # Y = ell.project_l2(X)
+    # print('Projected points to ellipsoid.')
 
-    # Plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(X[:, 0], X[:, 1], X[:, 2])
-    ax.scatter(Y[:, 0], Y[:, 1], Y[:, 2])
-    # Plot lines from X to Y
-    for i in range(N):
-        ax.plot([X[i, 0], Y[i, 0]], [X[i, 1], Y[i, 1]], [X[i, 2], Y[i, 2]], 'r')
-    X = ell.sample_mgrid()
-    ax.plot_surface(X[..., 0], X[..., 1], X[..., 2], color='y', alpha=0.3)
-    pt.ax_plane(ax, plane)
-    plt.show()
+    # # Plot
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.scatter(X[:, 0], X[:, 1], X[:, 2])
+    # ax.scatter(Y[:, 0], Y[:, 1], Y[:, 2])
+    # # Plot lines from X to Y
+    # for i in range(N):
+    #     ax.plot([X[i, 0], Y[i, 0]], [X[i, 1], Y[i, 1]], [X[i, 2], Y[i, 2]], 'r')
+    # X = ell.sample_mgrid()
+    # ax.plot_surface(X[..., 0], X[..., 1], X[..., 2], color='y', alpha=0.3)
+    # pt.ax_plane(ax, plane)
+    # plt.show()
 
     

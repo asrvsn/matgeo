@@ -746,8 +746,9 @@ class PlanarPolygon(SurfacePolygon, Surface):
 
     def draw_outline(self, img: np.ndarray, label: int=1) -> np.ndarray:
         assert self.ndim == 2
-        mask = draw_polygon(np.zeros(img.shape[:2], dtype=np.uint8), poly)
-        mask = (mask - binary_erosion(mask, iterations=1)).astype(bool)
+        mask = self.to_mask(img.shape[:2])
+        mask = (mask - binary_erosion(mask).astype(np.uint8)).astype(bool)
+        img = img.copy()
         img[mask] = label
         return img
     
@@ -956,6 +957,12 @@ class PlanarPolygonPacking(SurfacePacking):
         
     def copy(self) -> 'PlanarPolygonPacking':
         return PlanarPolygonPacking(self.surface.copy(), [p.copy() for p in self.polygons])
+    
+    def is_collinear(self, rtol: float=1e-1) -> bool:
+        ''' Check if all polygons are approximately collinear '''
+        axes = np.array([p.major_axis() for p in self.polygons])
+        dots = np.abs(axes @ axes.T)
+        return np.allclose(dots, 1, rtol=rtol)
         
     @property
     def coms(self) -> np.ndarray:
