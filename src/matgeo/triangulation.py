@@ -71,6 +71,9 @@ class Triangulation(Surface) :
     
     def __sub__(self, v: np.ndarray) -> 'Triangulation':
         return self + (-v)
+    
+    def __eq__(self, other: 'Triangulation') -> bool:
+        return np.allclose(self.pts, other.pts) and np.allclose(self.simplices, other.simplices)
 
     def compute_simplex_areas(self) -> np.ndarray:
         '''

@@ -26,6 +26,21 @@ class Ellipsoid(Surface):
         return np.allclose(self.M, other.M) and np.allclose(self.v, other.v)
 
     @staticmethod
+    def fit(points: np.ndarray, center: np.ndarray) -> 'Ellipsoid':
+        ''' Fit an ellipsoid to the given points, centered at the given center '''
+        assert points.ndim == 2, 'points must be 2d array'
+        ndim = points.shape[1]
+        assert center.ndim == 1 and center.shape[0] == ndim, 'center must have same dimension as points'
+        x = points - center
+        # Minimize (x^T M x - 1)^2 subject to M PD
+        M = cp.Variable((ndim, ndim), PSD=True)
+        cost = cp.sum_squares(cp.multiply(x @ M, x) - 1)
+        problem = cp.Problem(cp.Minimize(cost), [M >> 0])
+        problem.solve()
+        M = M.value
+        return Ellipsoid(M, center.copy())
+
+    @staticmethod
     def fit_outer(points: np.ndarray) -> 'Ellipsoid':
         ''' Fit minimum-volume ellipsoid containing the given points using DCP '''
         assert points.ndim == 2, 'points must be 2d array'
@@ -174,7 +189,7 @@ class Ellipsoid(Surface):
         X = Xbar + self.v[None, :]
         return X
 
-    def project_z(self, X: np.ndarray) -> np.ndarray:
+    def project_z(self, X: np.ndarray, mode='top') -> np.ndarray:
         '''
         Project points in XY plane onto ellipsoid using simple quadratic equation.
         Essentially casts X as parallel light rays onto the ellipsoid and finds the intersection points.
@@ -195,15 +210,21 @@ class Ellipsoid(Surface):
         c = y0 * (y01 @ M[0, :2]) + y1 * (y01 @ M[1, :2]) - 1
 
         # Using Citardauq formula for numerical stability, take root closest to zero
-        y2 = 2 * c / (-b - np.sqrt(b**2 - 4 * a * c))
+        if mode == 'top':
+            sign = 1
+        elif mode == 'bottom':
+            sign = -1
+        else:
+            raise ValueError(f'Invalid mode: {mode}')
+        y2 = 2 * c / (-b + sign * np.sqrt(b**2 - 4 * a * c))
         x2 = y2 + self.v[2]
         X_ = np.hstack((X, x2[:, None]))
         return X_
 
-    def project_poly_z(self, poly: PlanarPolygon, plane: Optional[Plane]=None) -> PlanarPolygon:
+    def project_poly_z(self, poly: PlanarPolygon, plane: Optional[Plane]=None, mode='top') -> PlanarPolygon:
         ''' Project a polygon onto the ellipsoid in the XY plane '''
         assert poly.ndim == 2
-        return PlanarPolygon(self.project_z(poly.vertices), plane=plane)
+        return PlanarPolygon(self.project_z(poly.vertices, mode=mode), plane=plane)
 
     def dist(self, X: np.ndarray, **kwargs) -> np.ndarray:
         assert X.ndim == 2, 'X must be 2d'
@@ -531,6 +552,9 @@ class Ellipse(Ellipsoid):
         M_ = P_ @ np.diag(L_) @ P_.T
         v_ = np.array([self.v[0], self.v[1], v_z])
         return Ellipsoid(M_, v_)
+    
+    def transpose(self) -> 'Ellipse':
+        return Ellipse.from_ellipsoid(super().transpose(1, 0))
     
     @staticmethod
     def from_ellipsoid(ell: Ellipsoid) -> 'Ellipse':
