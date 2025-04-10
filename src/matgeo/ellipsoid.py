@@ -308,7 +308,7 @@ class Ellipsoid(Surface):
         return np.prod(rs)
 
     def circular_radius(self) -> float:
-        ''' Geometric mean of major and minor axes '''
+        ''' Geometric mean of axes '''
         _, rs = self.get_axes_stretches()
         return np.prod(rs) ** (1/self.ndim)
     
