@@ -130,6 +130,9 @@ class SurfacePacking(ABC):
         self.surface = surface
         self.polygons = polygons
 
+    def __len__(self) -> int:
+        return self.n_polygons
+
     @property
     def n_polygons(self) -> int:
         ''' Number of polygons in the packing '''

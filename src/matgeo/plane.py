@@ -239,7 +239,8 @@ class PlanarPolygon(SurfacePolygon, Surface):
             plane: Optional[Plane]=None,
         ):
         assert vertices.ndim == 2, 'X must be 2d'
-        assert vertices.shape[0] >= 3, 'X must have at least 3 points'
+        if check:
+            assert vertices.shape[0] >= 3, 'X must have at least 3 points'
         nd = vertices.shape[1]
         assert nd >= 2, 'X must be at least 2-dimensional'
         # Compute planar embedding as needed
@@ -774,6 +775,14 @@ class PlanarPolygon(SurfacePolygon, Surface):
         return self.copy()
 
     @staticmethod
+    def from_chull_polygons(polys: List['PlanarPolygon']) -> 'PlanarPolygon':
+        '''
+        Compute convex hull of list of polygons
+        '''
+        assert all(p.ndim == 2 for p in polys), 'All polygons must be 2D'
+        return PlanarPolygon.from_pointcloud(np.concatenate([p.vertices for p in polys], axis=0))
+
+    @staticmethod
     def from_pointcloud(coords: np.ndarray) -> 'PlanarPolygon':
         '''
         Compute using 2d convex hull
@@ -922,6 +931,10 @@ class PlanarPolygon(SurfacePolygon, Surface):
         assert all(p.ndim == 2 for p in polys), 'All polygons must be 2D'
         # pdb.set_trace()
         return PlanarPolygon.from_pointcloud(np.concatenate([p.vertices for p in polys], axis=0))
+    
+    @staticmethod
+    def rect(x0, y0, w, h) -> 'PlanarPolygon':
+        return PlanarPolygon(np.array([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]]))
 
 class PlanarPolygonPartition(SurfacePartition):
     def __init__(self, surface: PlanarPolygon, vertices_nd: np.ndarray, partitions: np.ndarray, seeds_nd: np.ndarray):
@@ -980,6 +993,7 @@ class PlanarPolygonPacking(SurfacePacking):
             use_chull_if_invalid: bool=False,
             method = 'marching_squares',
             boundary = None,
+            check: bool=True,
         ) -> 'PlanarPolygonPacking':
         '''
         Extract polygons from mask
@@ -1001,22 +1015,24 @@ class PlanarPolygonPacking(SurfacePacking):
         polygons = []
 
         if method == 'standard':
-            labels = np.unique(mask)
-            for label in labels:
-                submask = (mask == label)
-                submask = do_erosion_dilation(submask)
-                if not submask.any():
-                    continue
-                _, contours, __ = upolygon.find_contours(submask.astype(np.uint8))
-                for contour in contours:
-                    if len(contour) >= 6:
-                        contour = np.array(contour).reshape(-1, 2)
-                        try:
-                            poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
-                            polygons.append(poly)
-                        except Exception as e:
-                            print(f'Error creating polygon from contour: {e}')
-                            continue
+            polygons = mask_to_polygons(mask, erode=erode, dilate=dilate, use_chull_if_invalid=use_chull_if_invalid)
+            polygons = [PlanarPolygon(p, check=check) for p in polygons if len(p) >= 3]
+            # labels = np.unique(mask)
+            # for label in labels:
+            #     submask = (mask == label)
+            #     submask = do_erosion_dilation(submask)
+            #     if not submask.any():
+            #         continue
+            #     _, contours, __ = upolygon.find_contours(submask.astype(np.uint8))
+            #     for contour in contours:
+            #         if len(contour) >= 6:
+            #             contour = np.array(contour).reshape(-1, 2)
+            #             try:
+            #                 poly = PlanarPolygon(contour, check=True, use_chull_if_invalid=use_chull_if_invalid)
+            #                 polygons.append(poly)
+            #             except Exception as e:
+            #                 print(f'Error creating polygon from contour: {e}')
+            #                 continue
 
         elif method == 'marching_squares':
             props = skimage.measure.regionprops(mask)
@@ -1085,6 +1101,76 @@ class PlanarPolygonPacking(SurfacePacking):
 '''
 Utility functions
 '''
+
+def mask_to_polygons(mask: np.ndarray, rdp_eps: float=0., erode: int=0, dilate: int=0, use_chull_if_invalid=False) -> List[np.ndarray]:
+    '''
+    Compute outlines of objects in mask as a list of polygon coordinates
+    Arguments:
+    - mask: integer mask of shape (H, W)
+    - rdp_eps: epsilon parameter in the Ramer-Douglas-Peucker algorithm for polygon simplification
+    - erode: number of pixels to erode the mask by before computing the polygon to get rid of single-pixel artifacts
+
+    TODO: use marching squares to get better polygons?
+    https://nils-olovsson.se/articles/marching_squares/
+    '''
+    assert mask.ndim == 2, 'Mask must be 2D'
+    assert rdp_eps >= 0
+    assert erode >= 0 and dilate >= 0
+    polygons = []
+
+    # slices = find_objects(mask)
+    # for i,si in enumerate(slices):
+    #         if si is not None:
+    #             sr, sc = si
+    #             submask = mask[sr, sc] == (i+1) # Select ROI
+    #             if erode > 0:
+    #                 submask = binary_erosion(submask, iterations=erode) # Get rid of single-pixel artifacts
+    #             if dilate > 0:
+    #                 submask = binary_dilation(submask, iterations=dilate) # Correct area lost in erosion
+    #             contours = cv2.findContours(submask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[-2]
+    #             # Take contour with largest coord count
+    #             n_coords = [c.size for c in contours]
+    #             pvc, pvr = contours[np.argmax(n_coords)].squeeze().T
+    #             vr, vc = pvr + sr.start, pvc + sc.start
+    #             coords = np.stack([vc, vr], axis=1)
+    #             # Construct polygon
+    #             poly = Polygon(coords)
+    #             if rdp_eps > 0: # Simplify polygon using RDP algorithm
+    #                 poly = poly.simplify(rdp_eps, preserve_topology=True)
+    #             poly = orient(poly, sign=1.0)
+    #             coords = np.array(poly.exterior.coords) # Exterior coordinates oriented counter-clockwise
+    #             polygons.append(coords)
+
+    elems = np.unique(mask)
+    elems = elems[elems != 0] # Ignore background
+    for elem in elems:
+        submask = mask == elem
+        if erode > 1:
+            submask = binary_erosion(submask, iterations=erode) # Get rid of single-pixel artifacts
+        if dilate > 1:
+            submask = binary_dilation(submask, iterations=dilate) # Correct area lost in erosion
+        _, external_paths, internal_paths = upolygon.find_contours(submask.astype(np.uint8))
+        # Take contour with largest coord count
+        n_coords = [len(c) for c in external_paths]
+        contour = external_paths[np.argmax(n_coords)] # in X, Y, X, Y, ... format
+        contour = np.array(contour).reshape(-1, 2) # (N, 2) in X, Y format
+        p = Polygon(contour)
+        # Ensure valid polygons are extracted
+        if not p.is_valid:
+            if use_chull_if_invalid:
+                p = p.convex_hull
+            else:
+                # Try buffer(0) trick
+                p = p.buffer(0)
+                if type(p) == shapely.geometry.MultiPolygon:
+                    # Extract polygon with largest area
+                    p = max(p.geoms, key=lambda x: x.area)
+            assert type(p) == shapely.geometry.Polygon
+            assert p.is_valid
+        contour = np.array(p.exterior.coords)  
+        polygons.append(contour)
+
+    return polygons
 
 def random_gamma_covariance(ar_k: float=1, norm: float=1) -> np.ndarray:
     '''
@@ -1174,12 +1260,24 @@ if __name__ == '__main__':
     assert np.allclose(plane_fit.b, plane.b, atol=1e-3), 'plane_fit.v != plane.v'
     plane_fit = Plane.fit_l2(Y)
 
+    # Check unary_union for overlapping polygons
+    for k in range(1000):
+        w = np.random.exponential() + 1
+        h = np.random.exponential() + 1
+        overlap = np.random.uniform(0, 1)
+        poly1 = PlanarPolygon.rect(0, 0, w, h)
+        poly2 = PlanarPolygon.rect(w - overlap, 0, w, h)
+        packing = PlanarPolygonPacking(None, [poly1, poly2])
+        covered_area = h * (2 * w - overlap)
+        assert np.isclose(covered_area, packing.covered_area())
+    print('Covering area of overlapping polygons is correct.')
+        
     # Check area of regular n-gon
     for k in range(10000):
         # Random regular polygon
         r = np.random.exponential()
         poly = PlanarPolygon.random_regular(r=r)
-        assert np.allclose(poly.area(), PlanarPolygon.area_ngon(poly.n, r=r)), f'area of regular {poly.n}-gon != analytic formula'
+        assert np.allclose(poly.area(), PlanarPolygon.area_ngon(poly.n, R=r)), f'area of regular {poly.n}-gon != analytic formula'
     print('Area of regular n-gon is correct.')
 
     # Check area against Shapely
