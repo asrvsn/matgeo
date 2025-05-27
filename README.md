@@ -29,11 +29,13 @@ This project requires CMake for building some dependencies. CMake is automatical
 - **macOS**: `brew install cmake`
 - **Ubuntu/Debian**: `sudo apt-get install cmake`
 - **Windows**: Download from [cmake.org](https://cmake.org/download/)
+  
+**For Windows, you must also install [Visual Studio](https://visualstudio.microsoft.com/downloads/) with the "Desktop development with C++" workload selected.**
 
 **You must also install [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started?pivots=shell-bash) and set the `VCPKG_ROOT` environment variable.**
 
 
-### Complete Installation Steps
+### Installation Steps
 
 For a complete installation, follow these steps in order:
 
