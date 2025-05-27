@@ -30,6 +30,9 @@ This project requires CMake for building some dependencies. CMake is automatical
 - **Ubuntu/Debian**: `sudo apt-get install cmake`
 - **Windows**: Download from [cmake.org](https://cmake.org/download/)
 
+**You must also install [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started?pivots=shell-bash) and set the `VCPKG_ROOT` environment variable.**
+
+
 ### Complete Installation Steps
 
 For a complete installation, follow these steps in order:
