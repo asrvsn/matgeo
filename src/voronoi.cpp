@@ -12,20 +12,20 @@ using namespace nb::literals;
 // Define types 
 typedef nb::ndarray<double, nb::ndim<2>> point_data;
 
-voro::container_periodic make_2d_box(point_data xs, const float L) {
+voro::container_periodic make_2d_box(point_data xs, const double L) {
     assert(xs.shape(1) == 2);
-    const int N = xs.shape(0);
-    const float V = L * L; // L x L x 1
+    const int N = static_cast<int>(xs.shape(0));
+    const double V = L * L; // L x L x 1
 
     // Choose blocks using heuristic as in freud
     // https://github.com/glotzerlab/freud/blob/main/cpp/locality/Voronoi.cc
-    const float block_scale = std::pow(N / (voro::optimal_particles * V), float(1.0 / 3.0));
-    const int bks_xy = int(L * block_scale + 1); 
-    const int bks_z = int(1 * block_scale + 1);
+    const double block_scale = std::pow(N / (voro::optimal_particles * V), 1.0 / 3.0);
+    const int bks_xy = static_cast<int>(L * block_scale + 1); 
+    const int bks_z = static_cast<int>(1 * block_scale + 1);
     voro::container_periodic box(L, 0, L, 0, 0, 1, bks_xy, bks_xy, bks_z, 3);
 
     auto xsv = xs.view(); 
-    for (size_t i=0; i<N; ++i) {
+    for (int i = 0; i < N; ++i) {
         box.put(i, xsv(i, 0), xsv(i, 1), 0.5); // Place points in plane at z=0.5
     }
     return box;
@@ -40,7 +40,7 @@ voro::container_periodic make_2d_box(point_data xs, const float L) {
  *
  * @throws None
  */
-void force_2d(point_data xs, point_data fs, const float L) {
+void force_2d(point_data xs, point_data fs, const double L) {
     assert(xs.shape(0) == fs.shape(0));
     assert(xs.shape(1) == fs.shape(1));
     voro::container_periodic box = make_2d_box(xs, L);
@@ -71,7 +71,7 @@ void force_2d(point_data xs, point_data fs, const float L) {
  *
  * @throws None
  */
-void areas_2d(point_data xs, nb::ndarray<double, nb::ndim<1>> areas, const float L) {
+void areas_2d(point_data xs, nb::ndarray<double, nb::ndim<1>> areas, const double L) {
     assert(xs.shape(0) == areas.shape(0));
     voro::container_periodic box = make_2d_box(xs, L);
 
@@ -84,7 +84,7 @@ void areas_2d(point_data xs, nb::ndarray<double, nb::ndim<1>> areas, const float
     } while (vloop.inc());
 }
 
-void centroids_2d(point_data xs, point_data cs, const float L) {
+void centroids_2d(point_data xs, point_data cs, const double L) {
     assert(xs.shape(0) == cs.shape(0));
     assert(xs.shape(1) == cs.shape(1));
     voro::container_periodic box = make_2d_box(xs, L);
@@ -98,17 +98,19 @@ void centroids_2d(point_data xs, point_data cs, const float L) {
         std::vector<double> vertices;
         cell.vertices(vertices);
         double cx = 0, cy = 0;
-        double vxi, vyi;
-        double vxj, vyj;
+        double vxi = 0, vyi = 0;  
+        double vxj = 0, vyj = 0;  
         int j;
-        int nv = vertices.size() / 2;
+        int nv = static_cast<int>(vertices.size()) / 3;  // vertices has 3 components per vertex
         // assert(nv == cell.number_of_faces() - 2);
         // std::cout << "nv = " << nv << std::endl;
-        // Compute centroids manually 
-        for (int i=0; i<nv; ++i) {
-            j = (i - 1) % nv;
-            vxi, vyi = vertices[i*3], vertices[i*3+1];
-            vxj, vyj = vertices[j*3], vertices[j*3+1];
+        // Compute centroids manually using shoelace formula
+        for (int i = 0; i < nv; ++i) {
+            j = (i + 1) % nv;  // Next vertex (consecutive vertices for shoelace)
+            vxi = vertices[i*3];     
+            vyi = vertices[i*3+1];   
+            vxj = vertices[j*3];     
+            vyj = vertices[j*3+1];   
             // std::cout << vxi << " " << vyi << std::endl;
             cx += (vxi + vxj) * (vxi * vyj - vxj * vyi);
             cy += (vyi + vyj) * (vxi * vyj - vxj * vyi);
@@ -125,7 +127,7 @@ void centroids_2d(point_data xs, point_data cs, const float L) {
     } while (vloop.inc());
 }
 
-void degree_2d(point_data xs, nb::ndarray<int, nb::ndim<1>> ds, const float L) {
+void degree_2d(point_data xs, nb::ndarray<int, nb::ndim<1>> ds, const double L) {
     assert(xs.shape(0) == ds.shape(0));
     voro::container_periodic box = make_2d_box(xs, L);
 

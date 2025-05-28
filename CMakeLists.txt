@@ -99,28 +99,39 @@ nanobind_add_module(
 include(ExternalProject)
 
 ## Build and link VORO++
-# See LAMMPS cmake files: https://github.com/lammps/lammps/blob/7ef9a93a75e873484d9aad8119e91c461f130d1c/cmake/Modules/Packages/VORONOI.cmake#L9
+# Use master branch which has CMake support for all platforms
 
-set(VORO_BUILD_CFLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${BTYPE}}")
-if(APPLE)
-  get_filename_component(VORO_CXX ${CMAKE_CXX_COMPILER} NAME_WE)
-  set(VORO_BUILD_OPTIONS CXX=${VORO_CXX} CFLAGS=${VORO_BUILD_CFLAGS})
-else()
-  set(VORO_BUILD_OPTIONS CXX=${CMAKE_CXX_COMPILER} CFLAGS=${VORO_BUILD_CFLAGS})
+# Set compiler flags for VORO++ based on compiler
+set(VORO_CXX_FLAGS "")
+set(VORO_C_FLAGS "")
+if(MSVC)
+    set(VORO_CXX_FLAGS "/wd4244 /wd4996")
+    set(VORO_C_FLAGS "/wd4244 /wd4996")
 endif()
 
 ExternalProject_Add(voro++
-    URL https://github.com/chr1shr/voro/archive/refs/tags/v0.4.6.tar.gz
-    CONFIGURE_COMMAND "" 
-    BUILD_COMMAND make ${VORO_BUILD_OPTIONS} 
-    BUILD_IN_SOURCE 1 
-    INSTALL_COMMAND ""
-    BUILD_BYPRODUCTS <SOURCE_DIR>/src/libvoro++.a
+    GIT_REPOSITORY https://github.com/chr1shr/voro.git
+    GIT_TAG master
+    CMAKE_ARGS
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_FLAGS=${VORO_CXX_FLAGS}
+        -DCMAKE_C_FLAGS=${VORO_C_FLAGS}
+    BUILD_BYPRODUCTS 
+        <INSTALL_DIR>/lib/${CMAKE_STATIC_LIBRARY_PREFIX}voro++${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
-ExternalProject_get_property(voro++ SOURCE_DIR)
-set(VOROPP_LIBRARIES ${SOURCE_DIR}/src/libvoro++.a)
-set(VOROPP_INCLUDE_DIRS ${SOURCE_DIR}/src)
+ExternalProject_get_property(voro++ INSTALL_DIR)
+set(VOROPP_LIBRARIES ${INSTALL_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}voro++${CMAKE_STATIC_LIBRARY_SUFFIX})
+set(VOROPP_INCLUDE_DIRS ${INSTALL_DIR}/include)
 message(STATUS "Found VORO: ${VOROPP_INCLUDE_DIRS} ${VOROPP_LIBRARIES}")
+
+# Suppress MSVC warnings for our own code when using VORO++
+if(MSVC)
+    target_compile_options(voronoi_cpp PRIVATE /wd4244 /wd4996)
+endif()
+
 target_include_directories(voronoi_cpp PRIVATE ${VOROPP_INCLUDE_DIRS})
 target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
 
@@ -142,8 +153,9 @@ target_include_directories(SNLib PUBLIC src/SNLib)
 
 # Dependencies
 add_dependencies(voronoi_cpp voro++)
-target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS} src/SNLib)
+target_include_directories(triangulation_cpp PRIVATE ${CGAL_INCLUDE_DIRS} src/SNLib)
 target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL SNLib OpenMeshCore OpenMeshTools)
 
 # Install directive for scikit-build-core
 install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
+# install(TARGETS voronoi_cpp LIBRARY DESTINATION matgeo)
