@@ -42,6 +42,13 @@ if (NOT SKBUILD)
 endif()
 
 # Try to import all Python components potentially needed by nanobind
+if(DEFINED ENV{CONDA_PREFIX})
+    set(Python_ROOT_DIR "$ENV{CONDA_PREFIX}")
+    set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/python.exe")
+    set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
+    set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
+    message(STATUS "Setting Python hints for conda environment: ${Python_ROOT_DIR}")
+endif()
 find_package(Python 3.10
   REQUIRED COMPONENTS Interpreter Development.Module
   OPTIONAL_COMPONENTS Development.SABIModule)
@@ -98,7 +105,7 @@ ExternalProject_Add(voro++
     BUILD_IN_SOURCE 1 
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS <SOURCE_DIR>/src/libvoro++.a
-    )
+)
 ExternalProject_get_property(voro++ SOURCE_DIR)
 set(VOROPP_LIBRARIES ${SOURCE_DIR}/src/libvoro++.a)
 set(VOROPP_INCLUDE_DIRS ${SOURCE_DIR}/src)

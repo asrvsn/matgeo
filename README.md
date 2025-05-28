@@ -24,18 +24,29 @@ Installation
 
 ### Build Dependencies
 
-This project requires CMake for building some dependencies. CMake is automatically handled as a build dependency, but if you encounter build issues, you may need to install it manually:
+#### Required for all platforms:
+- [Miniforge3](https://github.com/conda-forge/miniforge) (recommended) or another conda distribution
+- [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started?pivots=shell-bash) and set the `VCPKG_ROOT` environment variable
+- CMake (automatically handled as build dependency, but if you encounter issues, install manually):
+  - **macOS**: `brew install cmake`
+  - **Ubuntu/Debian**: `sudo apt-get install cmake`
+  - **Windows**: Download from [cmake.org](https://cmake.org/download/)
 
-- **macOS**: `brew install cmake`
-- **Ubuntu/Debian**: `sudo apt-get install cmake`
-- **Windows**: Download from [cmake.org](https://cmake.org/download/)
-  
-**For Windows, you must also install [Visual Studio](https://visualstudio.microsoft.com/downloads/) with the "Desktop development with C++" workload selected.**
-
-**You must also install [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started?pivots=shell-bash) and set the `VCPKG_ROOT` environment variable.**
-
+#### Platform-specific requirements:
+- **Windows only**: [Visual Studio](https://visualstudio.microsoft.com/downloads/) with the "Desktop development with C++" workload selected
 
 ### Installation Steps
+
+First, create and activate a conda environment if not already in one:
+```bash
+conda create -n segmentation python=3.10
+conda activate segmentation
+```
+
+Some dependencies have to be installed globally in the environment.
+```bash
+pip install nanobind scikit-build-core
+```
 
 For a complete installation, follow these steps in order:
 
@@ -44,8 +55,11 @@ For a complete installation, follow these steps in order:
 git clone <repository-url>
 cd matgeo
 
-# 2. Install the main package
-pip install .
+pip install --no-build-isolation -ve .
+```
+It's going to fail the first time. Run it again.
+```bash
+pip install --no-build-isolation -ve .
 ```
 
 Some dependencies require special handling due to dependency conflicts:
