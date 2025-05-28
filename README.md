@@ -22,8 +22,31 @@ project](https://github.com/pybind/scikit_build_example/) developed by
 Installation
 ------------
 
-1. Clone this repository
-2. Run `pip install ./nanobind_example`
+### Special Dependencies
+
+**Note**: When installing `pyclesperanto-prototype` with `--no-deps`, ensure that your environment already has the necessary dependencies (like OpenCL drivers) for it to function properly.
+
+### Complete Installation Steps
+
+For a complete installation, follow these steps in order:
+
+```bash
+# 1. Clone the repository
+git clone <repository-url>
+cd matgeo
+
+# 2. Install the main package
+pip install .
+```
+
+Some dependencies require special handling due to dependency conflicts:
+
+**pyclesperanto-prototype**: This package has dependency constraints that may conflict with other packages in this project. Install it separately without its dependencies:
+
+```bash
+# 3. Install pyclesperanto-prototype without its dependencies
+pip install pyclesperanto-prototype --no-deps
+```
 
 Afterwards, you should be able to issue the following commands (shown in an
 interactive Python session):
