@@ -3,6 +3,7 @@
     "cgal",
     "nanobind",
     "python3",
-    "eigen3"
+    "eigen3",
+    "openmesh"
   ]
 }

@@ -8,6 +8,10 @@
 #include <CGAL/compute_average_spacing.h>
 #include "MMSurfaceNet.h"
 #include "MMGeometryGL.h"
+#include <OpenMesh/Core/Mesh/TriMesh_ArrayKernelT.hh>
+#include <OpenMesh/Tools/Subdivider/Uniform/LoopT.hh>
+#include <OpenMesh/Tools/Subdivider/Uniform/ModifiedButterflyT.hh>
+#include <OpenMesh/Tools/Subdivider/Uniform/CatmullClarkT.hh>
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef Kernel::Point_3 Point;
 typedef CGAL::Surface_mesh<Point> Mesh;
@@ -280,100 +284,131 @@ extract_surface_net(
     );
 }
 
-// // Add relaxation parameters to the surface net extraction
-// std::tuple<vertices_array, faces_array> 
-// extract_surface_net_with_relaxation(
-//     const nb::ndarray<nb::numpy, unsigned short, nb::ndim<3>, nb::c_contig>& labels_array, 
-//     const nb::ndarray<nb::numpy, float, nb::shape<3>, nb::c_contig>& voxel_size_array,
-//     int num_relax_iterations = 5,
-//     float relax_factor = 0.5,
-//     float max_dist_from_cell_center = 0.45) 
-// {
-//     // Get array dimensions
-//     int array_size[3] = {
-//         static_cast<int>(labels_array.shape(0)),
-//         static_cast<int>(labels_array.shape(1)),
-//         static_cast<int>(labels_array.shape(2))
-//     };
-    
-//     // Create Surface Net
-//     MMSurfaceNet surface_net(
-//         const_cast<unsigned short*>(labels_array.data()), // Cast away const for the API
-//         array_size,
-//         const_cast<float*>(voxel_size_array.data()) // Cast away const for the API
-//     );
-    
-//     // Set relaxation attributes
-//     MMSurfaceNet::RelaxAttrs relax_attrs;
-//     relax_attrs.numRelaxIterations = num_relax_iterations;
-//     relax_attrs.relaxFactor = relax_factor;
-//     relax_attrs.maxDistFromCellCenter = max_dist_from_cell_center;
-    
-//     // Perform relaxation
-//     surface_net.relax(relax_attrs);
-    
-//     // For now, return placeholder empty arrays
-//     // We'll implement the actual mesh extraction in the next step
-    
-//     // Create empty vertices array
-//     double* vertices_data = new double[1 * 3];
-//     vertices_data[0] = vertices_data[1] = vertices_data[2] = 0.0;
-//     nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
-//         delete[] (double *) p;
-//     });
-    
-//     // Create empty faces array
-//     int* faces_data = new int[1 * 3];
-//     faces_data[0] = faces_data[1] = faces_data[2] = 0;
-//     nb::capsule faces_owner(faces_data, [](void *p) noexcept {
-//         delete[] (int *) p;
-//     });
-    
-//     return std::make_tuple(
-//         vertices_array(vertices_data, { 1, 3 }, vertices_owner),
-//         faces_array(faces_data, { 1, 3 }, faces_owner)
-//     );
-// }
+// OpenMesh subdivision functions
+typedef OpenMesh::TriMesh_ArrayKernelT<> TriMesh;
 
-// // Get unique labels from the surface net
-// nb::ndarray<nb::numpy, int> 
-// get_surface_net_labels(
-//     const nb::ndarray<nb::numpy, unsigned short, nb::ndim<3>, nb::c_contig>& labels_array, 
-//     const nb::ndarray<nb::numpy, float, nb::shape<3>, nb::c_contig>& voxel_size_array) 
-// {
-//     // Get array dimensions
-//     int array_size[3] = {
-//         static_cast<int>(labels_array.shape(0)),
-//         static_cast<int>(labels_array.shape(1)),
-//         static_cast<int>(labels_array.shape(2))
-//     };
+// Utility function to convert numpy arrays to OpenMesh
+TriMesh numpy_to_openmesh(const vertices_array& vertices, const faces_array& faces) {
+    TriMesh mesh;
     
-//     // Create Surface Net
-//     MMSurfaceNet surface_net(
-//         const_cast<unsigned short*>(labels_array.data()),
-//         array_size,
-//         const_cast<float*>(voxel_size_array.data()) // Cast away const for the API
-//     );
+    // Add vertices
+    size_t n_vertices = vertices.shape(0);
+    std::vector<TriMesh::VertexHandle> vertex_handles;
+    vertex_handles.reserve(n_vertices);
     
-//     // Get unique labels
-//     std::vector<int> unique_labels = surface_net.labels();
+    const double* vertex_data = vertices.data();
+    for (size_t i = 0; i < n_vertices; i++) {
+        TriMesh::Point p(vertex_data[i * 3], vertex_data[i * 3 + 1], vertex_data[i * 3 + 2]);
+        vertex_handles.push_back(mesh.add_vertex(p));
+    }
     
-//     // Create output array
-//     size_t num_labels = unique_labels.size();
-//     int* labels_data = new int[num_labels];
+    // Add faces
+    size_t n_faces = faces.shape(0);
+    const unsigned int* face_data = faces.data();
+    for (size_t i = 0; i < n_faces; i++) {
+        std::vector<TriMesh::VertexHandle> face_vhandles;
+        face_vhandles.push_back(vertex_handles[face_data[i * 3]]);
+        face_vhandles.push_back(vertex_handles[face_data[i * 3 + 1]]);
+        face_vhandles.push_back(vertex_handles[face_data[i * 3 + 2]]);
+        mesh.add_face(face_vhandles);
+    }
     
-//     // Copy labels to output array
-//     for (size_t i = 0; i < num_labels; i++) {
-//         labels_data[i] = unique_labels[i];
-//     }
+    return mesh;
+}
+
+// Utility function to convert OpenMesh back to numpy arrays
+std::tuple<vertices_array, faces_array> openmesh_to_numpy(TriMesh& mesh) {
+    size_t n_vertices = mesh.n_vertices();
+    size_t n_faces = mesh.n_faces();
     
-//     // Create memory management capsule
-//     nb::capsule labels_owner(labels_data, [](void *p) noexcept {
-//         delete[] (int *) p;
-//     });
+    // Create vertices array
+    double* vertices_data = new double[n_vertices * 3];
+    nb::capsule vertices_owner(vertices_data, [](void *p) noexcept {
+        delete[] (double *) p;
+    });
     
-//     return nb::ndarray<nb::numpy, int>(labels_data, { num_labels }, labels_owner);
-// }
+    // Fill vertices
+    size_t vertex_idx = 0;
+    for (auto v_it = mesh.vertices_begin(); v_it != mesh.vertices_end(); ++v_it) {
+        const TriMesh::Point& p = mesh.point(*v_it);
+        vertices_data[vertex_idx * 3] = p[0];
+        vertices_data[vertex_idx * 3 + 1] = p[1];
+        vertices_data[vertex_idx * 3 + 2] = p[2];
+        vertex_idx++;
+    }
+    
+    // Create faces array
+    unsigned int* faces_data = new unsigned int[n_faces * 3];
+    nb::capsule faces_owner(faces_data, [](void *p) noexcept {
+        delete[] (unsigned int *) p;
+    });
+    
+    // Fill faces
+    size_t face_idx = 0;
+    for (auto f_it = mesh.faces_begin(); f_it != mesh.faces_end(); ++f_it) {
+        auto fv_it = mesh.fv_iter(*f_it);
+        faces_data[face_idx * 3] = (*fv_it).idx(); ++fv_it;
+        faces_data[face_idx * 3 + 1] = (*fv_it).idx(); ++fv_it;
+        faces_data[face_idx * 3 + 2] = (*fv_it).idx();
+        face_idx++;
+    }
+    
+    return std::tuple<vertices_array, faces_array>(
+        vertices_array(vertices_data, { n_vertices, 3 }, vertices_owner),
+        faces_array(faces_data, { n_faces, 3 }, faces_owner)
+    );
+}
+
+// Loop subdivision
+std::tuple<vertices_array, faces_array> subdivide_loop(
+    const vertices_array& vertices, 
+    const faces_array& faces, 
+    int iterations = 1) {
+    
+    TriMesh mesh = numpy_to_openmesh(vertices, faces);
+    
+    // Apply Loop subdivision
+    OpenMesh::Subdivider::Uniform::LoopT<TriMesh> subdivider;
+    subdivider.attach(mesh);
+    subdivider(iterations);
+    subdivider.detach();
+    
+    return openmesh_to_numpy(mesh);
+}
+
+// Modified Butterfly subdivision
+std::tuple<vertices_array, faces_array> subdivide_modified_butterfly(
+    const vertices_array& vertices, 
+    const faces_array& faces, 
+    int iterations = 1) {
+    
+    TriMesh mesh = numpy_to_openmesh(vertices, faces);
+    
+    // Apply Modified Butterfly subdivision
+    OpenMesh::Subdivider::Uniform::ModifiedButterflyT<TriMesh> subdivider;
+    subdivider.attach(mesh);
+    subdivider(iterations);
+    subdivider.detach();
+    
+    return openmesh_to_numpy(mesh);
+}
+
+// Catmull-Clark subdivision (note: this works on triangle meshes too)
+std::tuple<vertices_array, faces_array> subdivide_catmull_clark(
+    const vertices_array& vertices, 
+    const faces_array& faces, 
+    int iterations = 1) {
+    
+    TriMesh mesh = numpy_to_openmesh(vertices, faces);
+    
+    // Apply Catmull-Clark subdivision
+    OpenMesh::Subdivider::Uniform::CatmullClarkT<TriMesh> subdivider;
+    subdivider.attach(mesh);
+    subdivider(iterations);
+    subdivider.detach();
+    
+    return openmesh_to_numpy(mesh);
+}
 
 // Binding code
 NB_MODULE(triangulation_cpp, m) {
@@ -399,6 +434,34 @@ NB_MODULE(triangulation_cpp, m) {
           "Returns: tuple of vertices and faces arrays",
           nb::arg("labels").noconvert(),
           nb::arg("voxel_size"));
+          
+    // OpenMesh subdivision functions
+    m.def("subdivide_loop",
+          &subdivide_loop,
+          "Performs Loop subdivision on a triangle mesh\n"
+          "Input: vertices array (nx3) and faces array (mx3)\n"
+          "Returns: tuple of subdivided vertices and faces arrays",
+          nb::arg("vertices").noconvert(),
+          nb::arg("faces").noconvert(),
+          nb::arg("iterations") = 1);
+          
+    m.def("subdivide_modified_butterfly",
+          &subdivide_modified_butterfly,
+          "Performs Modified Butterfly subdivision on a triangle mesh\n"
+          "Input: vertices array (nx3) and faces array (mx3)\n"
+          "Returns: tuple of subdivided vertices and faces arrays",
+          nb::arg("vertices").noconvert(),
+          nb::arg("faces").noconvert(),
+          nb::arg("iterations") = 1);
+          
+    m.def("subdivide_catmull_clark",
+          &subdivide_catmull_clark,
+          "Performs Catmull-Clark subdivision on a triangle mesh\n"
+          "Input: vertices array (nx3) and faces array (mx3)\n"
+          "Returns: tuple of subdivided vertices and faces arrays",
+          nb::arg("vertices").noconvert(),
+          nb::arg("faces").noconvert(),
+          nb::arg("iterations") = 1);
           
     // Uncomment these when you're ready to expose these functions
     /*

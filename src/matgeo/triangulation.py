@@ -330,21 +330,20 @@ class Triangulation(Surface) :
         correspond exactly to the original mesh points.
         '''
         assert n >= 0
-        tri = self.copy()
-        mesh = omesh.TriMesh()
-        mesh.add_vertices(tri.pts)
-        mesh.add_faces(tri.simplices)
+        if n == 0:
+            return self.copy()
+        
+        # Use our OpenMesh C++ bindings
         if mode == 'modified_butterfly':
-            mesh.subdivide_modified_butterfly(n)
+            new_pts, new_simplices = tri_cpp.subdivide_modified_butterfly(self.pts, self.simplices, n)
         elif mode == 'catmull_clark':
-            mesh.subdivide_catmull_clark(n)
+            new_pts, new_simplices = tri_cpp.subdivide_catmull_clark(self.pts, self.simplices, n)
         elif mode == 'loop':
-            mesh.subdivide_loop(n)
+            new_pts, new_simplices = tri_cpp.subdivide_loop(self.pts, self.simplices, n)
         else:
             raise ValueError(f'Unknown subdivision mode: {mode}')
-        tri.pts = mesh.points()
-        tri.simplices = mesh.face_vertex_indices()
-        return tri
+        
+        return Triangulation(new_pts, new_simplices)
 
     def copy(self) -> 'Triangulation':
         '''

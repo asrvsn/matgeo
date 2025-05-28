@@ -109,6 +109,9 @@ target_link_libraries(voronoi_cpp PRIVATE ${VOROPP_LIBRARIES})
 ## CGAL 
 find_package(CGAL REQUIRED)
 
+## OpenMesh
+find_package(OpenMesh REQUIRED)
+
 ## Surface nets
 add_library(SNLib STATIC 
     src/SNLib/MMSurfaceNet.cpp
@@ -122,7 +125,7 @@ target_include_directories(SNLib PUBLIC src/SNLib)
 # Dependencies
 add_dependencies(voronoi_cpp voro++)
 target_include_directories(triangulation_cpp PRIVATE ${Boost_INCLUDE_DIRS} ${CGAL_INCLUDE_DIRS} src/SNLib)
-target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL SNLib)
+target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL SNLib OpenMeshCore OpenMeshTools)
 
 # Install directive for scikit-build-core
 install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
