@@ -22,9 +22,13 @@ project](https://github.com/pybind/scikit_build_example/) developed by
 Installation
 ------------
 
-### Special Dependencies
+### Build Dependencies
 
-**Note**: When installing `pyclesperanto-prototype` with `--no-deps`, ensure that your environment already has the necessary dependencies (like OpenCL drivers) for it to function properly.
+This project requires CMake for building some dependencies (like `openmesh`). CMake is automatically handled as a build dependency, but if you encounter build issues, you may need to install it manually:
+
+- **macOS**: `brew install cmake`
+- **Ubuntu/Debian**: `sudo apt-get install cmake`
+- **Windows**: Download from [cmake.org](https://cmake.org/download/)
 
 ### Complete Installation Steps
 
@@ -40,6 +44,8 @@ pip install .
 ```
 
 Some dependencies require special handling due to dependency conflicts:
+
+**Note**: When installing `pyclesperanto-prototype` with `--no-deps`, ensure that your environment already has the necessary dependencies (like OpenCL drivers) for it to function properly.
 
 **pyclesperanto-prototype**: This package has dependency constraints that may conflict with other packages in this project. Install it separately without its dependencies:
 
