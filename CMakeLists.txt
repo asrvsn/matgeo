@@ -54,6 +54,11 @@ if(DEFINED ENV{CONDA_PREFIX})
     # Set Python library based on platform
     if(WIN32)
         set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
+    elseif(APPLE)
+        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/lib/libpython3.10.dylib")
+    else()
+        # Linux and other Unix-like systems
+        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/lib/libpython3.10.so")
     endif()
     message(STATUS "Setting Python hints for conda environment: ${Python_ROOT_DIR}")
 endif()
