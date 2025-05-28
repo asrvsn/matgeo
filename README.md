@@ -24,7 +24,7 @@ Installation
 
 ### Build Dependencies
 
-This project requires CMake for building some dependencies (like `openmesh`). CMake is automatically handled as a build dependency, but if you encounter build issues, you may need to install it manually:
+This project requires CMake for building some dependencies. CMake is automatically handled as a build dependency, but if you encounter build issues, you may need to install it manually:
 
 - **macOS**: `brew install cmake`
 - **Ubuntu/Debian**: `sudo apt-get install cmake`

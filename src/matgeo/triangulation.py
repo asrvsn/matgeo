@@ -12,7 +12,7 @@ from skimage.measure import marching_cubes
 import pdb
 from tqdm import tqdm
 import potpourri3d as pp3d
-import openmesh as omesh
+# import openmesh as omesh # TODO: integrate openmesh C++ directly through nanobind
 import joblib as jl
 import multiprocessing as mp
 import pickle
