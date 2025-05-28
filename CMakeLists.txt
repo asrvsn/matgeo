@@ -156,6 +156,10 @@ add_dependencies(voronoi_cpp voro++)
 target_include_directories(triangulation_cpp PRIVATE ${CGAL_INCLUDE_DIRS} src/SNLib)
 target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL SNLib OpenMeshCore OpenMeshTools)
 
+# Add required preprocessor definitions for Windows
+if(WIN32)
+    target_compile_definitions(triangulation_cpp PRIVATE _USE_MATH_DEFINES)
+endif()
+
 # Install directive for scikit-build-core
 install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
-# install(TARGETS voronoi_cpp LIBRARY DESTINATION matgeo)

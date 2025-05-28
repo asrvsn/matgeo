@@ -54,8 +54,7 @@ For a complete installation, follow these steps in order:
 # 1. Clone the repository
 git clone <repository-url>
 cd matgeo
-
-pip install --no-build-isolation -ve .
+pip install -ve .
 ```
 
 Some dependencies require special handling due to dependency conflicts:
@@ -69,13 +68,11 @@ Some dependencies require special handling due to dependency conflicts:
 pip install pyclesperanto-prototype --no-deps
 ```
 
-Afterwards, you should be able to issue the following commands (shown in an
-interactive Python session):
+### Installation (developer)
 
-```pycon
->>> import nanobind_example
->>> nanobind_example.add(1, 2)
-3
+```bash
+pip install nanobind scikit-build-core[pyproject]
+pip install --no-build-isolation -ve .
 ```
 
 CI Examples
