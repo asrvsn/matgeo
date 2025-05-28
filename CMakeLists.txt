@@ -50,7 +50,17 @@ if(DEFINED ENV{CONDA_PREFIX})
     else()
         set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
     endif()
-    set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
+    
+    # Set Python include directories based on platform
+    if(WIN32)
+        set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
+    else()
+        # Unix systems may have Python.h in python3.X subdirectory
+        set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include/python3.10")
+        # Also set the general include dir as fallback
+        list(APPEND Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
+    endif()
+    
     # Set Python library based on platform
     if(WIN32)
         set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
