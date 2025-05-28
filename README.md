@@ -57,10 +57,6 @@ cd matgeo
 
 pip install --no-build-isolation -ve .
 ```
-It's going to fail the first time. Run it again.
-```bash
-pip install --no-build-isolation -ve .
-```
 
 Some dependencies require special handling due to dependency conflicts:
 
