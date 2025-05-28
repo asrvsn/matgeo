@@ -44,34 +44,18 @@ endif()
 # Try to import all Python components potentially needed by nanobind
 if(DEFINED ENV{CONDA_PREFIX})
     set(Python_ROOT_DIR "$ENV{CONDA_PREFIX}")
+    message(STATUS "Setting Python hints for conda environment: ${Python_ROOT_DIR}")
+    
     # Set Python executable based on platform
     if(WIN32)
         set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/python.exe")
     else()
         set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
     endif()
-    
-    # Set Python include directories based on platform
-    if(WIN32)
-        set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
-    else()
-        # Unix systems may have Python.h in python3.X subdirectory
-        set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include/python3.10")
-        # Also set the general include dir as fallback
-        list(APPEND Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
-    endif()
-    
-    # Set Python library based on platform
-    if(WIN32)
-        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
-    elseif(APPLE)
-        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/lib/libpython3.10.dylib")
-    else()
-        # Linux and other Unix-like systems
-        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/lib/libpython3.10.so")
-    endif()
-    message(STATUS "Setting Python hints for conda environment: ${Python_ROOT_DIR}")
+    # For conda environments, let CMake find the Python installation automatically
+    # by setting the root directory - this is more reliable than manually setting paths
 endif()
+
 find_package(Python 3.10
   REQUIRED COMPONENTS Interpreter Development.Module
   OPTIONAL_COMPONENTS Development.SABIModule)
