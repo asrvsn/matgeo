@@ -49,9 +49,13 @@ if(DEFINED ENV{CONDA_PREFIX})
     # Set Python executable based on platform
     if(WIN32)
         set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/python.exe")
+        # Windows conda environments need explicit library and include paths
+        set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
+        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
     else()
         set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
     endif()
+    
     # For conda environments, let CMake find the Python installation automatically
     # by setting the root directory - this is more reliable than manually setting paths
 endif()
