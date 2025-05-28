@@ -44,9 +44,17 @@ endif()
 # Try to import all Python components potentially needed by nanobind
 if(DEFINED ENV{CONDA_PREFIX})
     set(Python_ROOT_DIR "$ENV{CONDA_PREFIX}")
-    set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/python.exe")
+    # Set Python executable based on platform
+    if(WIN32)
+        set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/python.exe")
+    else()
+        set(Python_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
+    endif()
     set(Python_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include")
-    set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
+    # Set Python library based on platform
+    if(WIN32)
+        set(Python_LIBRARY "$ENV{CONDA_PREFIX}/libs/python310.lib")
+    endif()
     message(STATUS "Setting Python hints for conda environment: ${Python_ROOT_DIR}")
 endif()
 find_package(Python 3.10
