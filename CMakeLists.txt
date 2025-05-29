@@ -163,3 +163,26 @@ endif()
 
 # Install directive for scikit-build-core
 install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
+
+# Install required DLL dependencies on Windows
+if(WIN32)
+    # Install OpenMesh DLLs
+    install(FILES $<TARGET_FILE:OpenMeshCore> DESTINATION matgeo)
+    
+    # Install vcpkg DLLs (GMP and MPFR)
+    install(FILES 
+        ${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/gmp-10.dll
+        ${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/mpfr-6.dll
+        DESTINATION matgeo
+        OPTIONAL
+    )
+    
+    # Also look in Release directory for built DLLs
+    install(FILES 
+        ${CMAKE_BINARY_DIR}/Release/OpenMeshCore.dll
+        ${CMAKE_BINARY_DIR}/Release/gmp-10.dll
+        ${CMAKE_BINARY_DIR}/Release/mpfr-6.dll
+        DESTINATION matgeo
+        OPTIONAL
+    )
+endif()

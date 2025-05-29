@@ -33,6 +33,7 @@ dependencies = [
     "siphash24",
     "osqp",
     "ecos",
+    "polygon-math",
 ]
 
 [project.urls]

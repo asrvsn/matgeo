@@ -323,7 +323,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
                 center = self.centroid()
             X = X - center # Calculate nth moment about given center
         X_ = np.roll(X, -1, axis=0) # Next points in sequence (common subexpression) 
-        X_cross = np.cross(X, X_) # Cross product of adjacent points (common subexpression)
+        X_cross = X[:, 0] * X_[:, 1] - X[:, 1] * X_[:, 0] # Cross product of adjacent points (common subexpression)
         if n == 0:
             return X_cross.sum() / 2
         elif n == 1:
@@ -444,7 +444,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
         '''
         e_ij = self.vertices - np.roll(self.vertices, 1, axis=0)
         e_jk = np.roll(e_ij, -1, axis=0)
-        return np.arctan2(np.cross(e_ij, e_jk), (e_ij * e_jk).sum(axis=1))
+        return np.arctan2(e_ij[:, 0] * e_jk[:, 1] - e_ij[:, 1] * e_jk[:, 0], (e_ij * e_jk).sum(axis=1))
 
     def elastic_energy(self) -> float:
         '''
@@ -759,7 +759,7 @@ class PlanarPolygon(SurfacePolygon, Surface):
         plane = Plane.XY() + np.array([0, 0, z])
         vertices = np.hstack((self.vertices, np.full((self.vertices.shape[0], 1), z)))
         return PlanarPolygon(vertices, plane=plane, check=False) # Assume I am already valid
-    
+
     def embed_XY(self) -> 'PlanarPolygon':
         return self.embed_3d(z=0.)
     
@@ -1205,7 +1205,7 @@ def polygon_area_unjitted(X: np.ndarray) -> float:
     Area of polygon using JAX
     '''
     X_ = jnp.roll(X, -1, axis=0)
-    X_cross = jnp.cross(X, X_)
+    X_cross = X[:, 0] * X_[:, 1] - X[:, 1] * X_[:, 0]
     return jnp.sum(X_cross) / 2
 
 polygon_area = jax.jit(polygon_area_unjitted)
@@ -1217,7 +1217,7 @@ def polygon_second_moment_unjitted(X: np.ndarray, o: np.ndarray) -> np.ndarray:
     '''
     X = X - o
     X_ = jnp.roll(X, -1, axis=0)
-    X_cross = jnp.cross(X, X_)
+    X_cross = X[:, 0] * X_[:, 1] - X[:, 1] * X_[:, 0]
     x, y = X.T
     x_, y_ = X_.T
     I_xx = X_cross @ (x**2 + x*x_ + x_**2) / 12
