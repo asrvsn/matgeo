@@ -5,7 +5,7 @@ Triangulations of surfaces
 import os
 import numpy as np
 from numpy.linalg import norm
-from typing import Tuple, List, Dict, Set
+from typing import Tuple, List, Dict, Set, Optional
 from scipy.spatial import ConvexHull, KDTree, Delaunay
 from scipy.spatial.distance import cdist
 from skimage.measure import marching_cubes
@@ -20,6 +20,10 @@ import alphashape
 from collections import defaultdict
 import trimesh
 import pyclesperanto_prototype as cle
+
+import dolfinx.mesh as dmesh 
+from mpi4py import MPI
+from basix.ufl import element as ufl_element
 
 import matgeo.triangulation_cpp as tri_cpp
 from .surface import *
@@ -451,6 +455,31 @@ class Triangulation(Surface) :
         np.savetxt(f'{basename}.vertices.txt', self.pts)
         np.savetxt(f'{basename}.triangles.txt', self.simplices, fmt='%d')
         print(f'Exported {self.pts.shape[0]} vertices and {self.simplices.shape[0]} triangles to {basename}')
+
+    def to_dolfinx_mesh(self, domain_element=None) -> dmesh.Mesh:
+        """
+        Converts the Triangulation object to a dolfinx.mesh.Mesh object.
+
+        Args:
+            domain_element (basix.ufl.element, optional): The ufl element for the domain.
+                Defaults to a linear Lagrange triangle element. This defines the
+                geometry of the mesh itself. The function space for the PDE solution
+                is defined on this mesh later.
+
+        Returns:
+            dolfinx.mesh.Mesh: The generated dolfinx mesh.
+        """
+        gdim = self.ndim
+        assert gdim == 2, "Currently only 2D triangulations are supported for dolfinx conversion."
+
+        if domain_element is None:
+            domain_element = ufl_element("triangle", "Lagrange", 1, shape=(gdim,))
+        
+        # Ensure correct data types for dolfinx
+        points_f64 = self.pts.astype(np.float64)
+        simplices_i64 = self.simplices.astype(np.int64)
+
+        return dmesh.create_mesh(MPI.COMM_WORLD, simplices_i64, points_f64, domain_element)
 
     @staticmethod
     def surface_3d(pts: np.ndarray, method='advancing_front', orient: bool=False, **kwargs) -> 'Triangulation':

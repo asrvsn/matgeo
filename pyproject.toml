@@ -22,6 +22,7 @@ dependencies = [
     "scipy>=1.7.0",
     "cvxpy>=1.3.0",
     "shapely>=2.0.0",    # Using newer Shapely API
+    "scikit-image",
     "scikit-learn>=1.0.0",
     "opencv-python>=4.5.0",
     "jax>=0.4.0",
@@ -33,7 +34,13 @@ dependencies = [
     "siphash24",
     "osqp",
     "ecos",
+    "upolygon",
     "polygon-math",
+    "asrvsn_math",
+    # pyclesperanto_prototype dependencies
+    "toolz",
+    "pyopencl",
+    "transforms3d",
 ]
 
 [project.urls]

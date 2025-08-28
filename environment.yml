@@ -1,0 +1,11 @@
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - numpy>=2.2.0
+  - fenics-dolfinx
+  - mpich
+  - scikit-build-core
+  - nanobind
+  - ocl_icd_wrapper_apple
