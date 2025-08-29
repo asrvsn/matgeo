@@ -3,7 +3,7 @@ Sampling Matern point processes
 '''
 import numpy as np
 
-from asrvsn_math.torus import dists_td
+from asrvsn_math.torus import cdist_td
 
 def matern_II_torus(mu: float, r: float, rng=np.random.default_rng()) -> np.ndarray:
     '''
@@ -17,7 +17,7 @@ def matern_II_torus(mu: float, r: float, rng=np.random.default_rng()) -> np.ndar
 
     pts = rng.uniform(0.0, 1.0, (n, 2))
     marks = rng.uniform(0.0, 1.0, n)
-    ds = dists_td(pts)
+    ds = cdist_td(pts)
     np.fill_diagonal(ds, np.inf)
     overlapping = ds < (2 * r)
     overlapping_marks = np.where(overlapping, marks[None, :], np.inf)
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import asrvsn_mpl as pt
     r = 0.1
-    pts = matern_II_torus(100, r)
+    pts = matern_II_torus(1000, r)
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
     pt.ax_square(ax, np.array([0.5, 0.5]), 0.5)

@@ -49,7 +49,7 @@ def voronoi_flat_torus(pts: np.ndarray) -> Tuple[np.ndarray, list]:
     Voronoi tessellation on flat torus [0, 1)^2. Returns:
     - Vertices to render
     - Regions to render (1-1 with input points)
-    # - Translates points to [0, 1)^2
+    - Takes points in R^2, returns the corresponding Voronoi polygons (this _is_ the minimal-image unwrapping of T^2).
     '''
     assert pts.ndim == 2
     assert pts.shape[1] == 2
