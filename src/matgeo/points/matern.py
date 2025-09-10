@@ -17,7 +17,7 @@ def matern_II_torus(mu: float, r: float, rng=np.random.default_rng()) -> np.ndar
 
     pts = rng.uniform(0.0, 1.0, (n, 2))
     marks = rng.uniform(0.0, 1.0, n)
-    ds = cdist_td(pts)
+    ds = cdist_td(pts, pts)
     np.fill_diagonal(ds, np.inf)
     overlapping = ds < (2 * r)
     overlapping_marks = np.where(overlapping, marks[None, :], np.inf)

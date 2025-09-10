@@ -15,7 +15,7 @@ import pdb
 import matplotlib.pyplot as plt
 
 import matgeo.voronoi_cpp as vor_cpp
-from .utils.poly import polygonize_mask
+from matgeo.utils.poly import polygonize_mask
 
 eps = sys.float_info.epsilon
 

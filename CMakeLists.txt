@@ -96,6 +96,13 @@ nanobind_add_module(
   src/triangulation.cpp
   )
 
+nanobind_add_module(
+  hmc_cpp
+  STABLE_ABI
+  NB_STATIC
+  src/hmc.cpp
+  )
+
 include(ExternalProject)
 
 ## Build and link VORO++
@@ -141,6 +148,9 @@ find_package(CGAL REQUIRED)
 ## OpenMesh
 find_package(OpenMesh REQUIRED)
 
+## Eigen3 (header-only)
+find_package(Eigen3 REQUIRED)
+
 ## Surface nets
 add_library(SNLib STATIC 
     src/SNLib/MMSurfaceNet.cpp
@@ -156,13 +166,19 @@ add_dependencies(voronoi_cpp voro++)
 target_include_directories(triangulation_cpp PRIVATE ${CGAL_INCLUDE_DIRS} src/SNLib)
 target_link_libraries(triangulation_cpp PRIVATE CGAL::CGAL SNLib OpenMeshCore OpenMeshTools)
 
+if(TARGET Eigen3::Eigen)
+  target_link_libraries(hmc_cpp PRIVATE Eigen3::Eigen)
+else()
+  target_include_directories(hmc_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
+endif()
+
 # Add required preprocessor definitions for Windows
 if(WIN32)
     target_compile_definitions(triangulation_cpp PRIVATE _USE_MATH_DEFINES)
 endif()
 
 # Install directive for scikit-build-core
-install(TARGETS voronoi_cpp triangulation_cpp LIBRARY DESTINATION matgeo)
+install(TARGETS voronoi_cpp triangulation_cpp hmc_cpp LIBRARY DESTINATION matgeo)
 
 # Install required DLL dependencies on Windows
 if(WIN32)
