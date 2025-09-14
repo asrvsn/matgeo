@@ -25,14 +25,9 @@ class SwissCheeseRVE(RandomInclusionRVE):
             mesh_size: Characteristic mesh size
             **kwargs: Additional arguments passed to RandomInclusionRVE
         """
-        # Initialize parent class with proper inclusionSets format
-        # gmshModel expects inclusionSets as numpy array with shape (n, 2) for [radius, volume_fraction]
-        # We'll create a dummy set and override the placement later
-        dummy_inclusion_sets = np.array([[0.01, 0.001]])  # Small dummy inclusion
-        
         super().__init__(
             size=size,
-            inclusionSets=dummy_inclusion_sets,
+            inclusionSets=np.array([[0.01, 0.001]])  # Small dummy inclusion set
             inclusionType="Circle",
             origin=[0.0, 0.0, 0.0],
             periodicityFlags=[1, 1, 0],  # Periodic in x and y
@@ -111,7 +106,6 @@ def swiss_cheese(
         centers=centers,
         radii=radii,
         size=[1.0, 1.0, 0.0],
-        # mesh_size=lcar,
         **kwargs
     )
     rve.createGmshModel()
@@ -120,10 +114,12 @@ def swiss_cheese(
         "refinementOptions": {
             "maxMeshSize": "auto",
             "inclusionRefinement": True,
-            # "interInclusionRefinement": True,
+            "interInclusionRefinement": True,
             "elementsPerCircumference": boundary_elements,
-            "inclusionRefinementWidth": 10,
+            "elementsBetweenInclusions": 3,
+            "inclusionRefinementWidth": 3,
             "transitionElements": "auto",
+            # "aspectRatio": 2,
         }
     }
     rve.createMesh(**meshingParameters)
@@ -147,5 +143,5 @@ if __name__ == "__main__":
     # fig, ax = plt.subplots()
     # ampl.ax_tri_2d(ax, tri.pts, tri.simplices)
     # plt.show()
-    rve = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=100)
+    rve = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
     rve.visualizeMesh()
