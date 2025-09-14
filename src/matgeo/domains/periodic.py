@@ -3,47 +3,149 @@ A collection of periodic domain construction helpers
 '''
 import numpy as np
 import pygmsh
+import gmsh
+import meshio
+from gmshModel.Model.RandomInclusionRVE import RandomInclusionRVE
 
-from ..triangulation import Triangulation
+class SwissCheeseRVE(RandomInclusionRVE):
+    """
+    Swiss cheese RVE with explicitly specified circular inclusion centers and radii.
+    Subclasses gmshModel's RandomInclusionRVE to create periodic domains with holes.
+    """
+    
+    def __init__(self, centers: np.ndarray, radii: np.ndarray, 
+                 size=[1.0, 1.0, 0.0], mesh_size=0.1, **kwargs):
+        """
+        Initialize Swiss cheese RVE with explicit inclusion positions.
+        
+        Args:
+            centers: (n, 2) array of inclusion centers in [0,1)^2
+            radii: (n,) array of inclusion radii
+            size: Domain size [width, height, depth]
+            mesh_size: Characteristic mesh size
+            **kwargs: Additional arguments passed to RandomInclusionRVE
+        """
+        # Initialize parent class with proper inclusionSets format
+        # gmshModel expects inclusionSets as numpy array with shape (n, 2) for [radius, volume_fraction]
+        # We'll create a dummy set and override the placement later
+        dummy_inclusion_sets = np.array([[0.01, 0.001]])  # Small dummy inclusion
+        
+        super().__init__(
+            size=size,
+            inclusionSets=dummy_inclusion_sets,
+            inclusionType="Circle",
+            origin=[0.0, 0.0, 0.0],
+            periodicityFlags=[1, 1, 0],  # Periodic in x and y
+            domainGroup='domain',
+            inclusionGroup='inclusions',
+            **kwargs
+        )
+        
+        self.centers = np.asarray(centers, dtype=float)
+        self.radii = np.asarray(radii, dtype=float)
+        self.mesh_size = mesh_size
+        
+        # Validate inputs
+        assert self.centers.ndim == 2 and self.centers.shape[1] == 2
+        assert self.radii.ndim == 1 and self.radii.shape[0] == self.centers.shape[0]
+        assert (self.centers.min() >= 0.0) and (self.centers.max() < 1.0), "Centers must lie in [0,1)^2"
+    
+    def placeInclusions(self, placementOptions={}):
+        """
+        Override parent method to place inclusions at explicit centers with given radii.
+        Also handles periodic images of inclusions that overlap domain boundaries.
+        """
+        # Build inclusion info array: [x, y, z, radius]
+        inclusion_info = []
+        
+        # For each inclusion, create periodic images if they intersect unit square boundaries
+        for c, r in zip(self.centers, self.radii):
+            for dx in [-1.0, 0.0, 1.0]:
+                for dy in [-1.0, 0.0, 1.0]:
+                    c_img = c + np.array([dx, dy])
+                    # Check if this periodic image intersects the unit square [0,1]^2
+                    if self._circle_intersects_unit_square(c_img, r):
+                        # Add origin offset to match RVE coordinate system
+                        center_3d = c_img + np.array(self.origin[:2])
+                        inclusion_info.append([center_3d[0], center_3d[1], self.origin[2], float(r)])
+        
+        # Set inclusionInfo (the only thing the parent class needs from us)
+        if inclusion_info:
+            self.inclusionInfo = np.array(inclusion_info)
+        else:
+            self.inclusionInfo = np.empty((0, 4))
+    
+    def _circle_intersects_unit_square(self, center: np.ndarray, radius: float) -> bool:
+        """Check if a circle intersects the unit square [0,1]^2."""
+        return (center[0] + radius > 0.0 and center[0] - radius < 1.0 and 
+                center[1] + radius > 0.0 and center[1] - radius < 1.0)
+    
+    def generate_mesh(self, **mesh_options):
+        """Generate the mesh with appropriate sizing."""
+        # Set mesh size options
+        if 'characteristicLength' not in mesh_options:
+            mesh_options['characteristicLength'] = self.mesh_size
+        
+        return super().generate_mesh(**mesh_options)
 
-def swiss_cheese(centers: np.ndarray, radii: np.ndarray, lcar_min: float, lcar_max: float) -> Triangulation:
+def swiss_cheese(
+        centers: np.ndarray, 
+        radii: np.ndarray, 
+        boundary_elements: int=40,
+        **kwargs
+    ) -> SwissCheeseRVE:
     """
     Creates a 2D triangulation for a periodic domain [0, 1)^2 with circular holes.
     Holes are periodized: if a disk overlaps an edge, its image appears on the opposite side.
+    
+    Args:
+        centers: (n, 2) array of inclusion centers in [0,1)^2
+        radii: (n,) array of inclusion radii
+        lcar: Mesh size
+        **kwargs: Additional arguments passed to SwissCheeseRVE
+    
+    Returns:
+        meshio.Mesh: Generated mesh
     """
-    centers = np.asarray(centers, dtype=float)
-    radii = np.asarray(radii, dtype=float)
-    assert centers.ndim == 2 and centers.shape[1] == 2
-    assert radii.ndim == 1 and radii.shape[0] == centers.shape[0]
-
-    def circle_intersects_unit_square(c: np.ndarray, r: float) -> bool:
-        # AABB intersection test with [0,1]x[0,1]
-        return (c[0] + r > 0.0) and (c[0] - r < 1.0) and (c[1] + r > 0.0) and (c[1] - r < 1.0)
-
-    offsets = np.array(
-        [[-1.0, -1.0], [-1.0, 0.0], [-1.0, 1.0],
-         [ 0.0, -1.0], [ 0.0, 0.0], [ 0.0, 1.0],
-         [ 1.0, -1.0], [ 1.0, 0.0], [ 1.0, 1.0]],
-        dtype=float
+    rve = SwissCheeseRVE(
+        centers=centers,
+        radii=radii,
+        size=[1.0, 1.0, 0.0],
+        # mesh_size=lcar,
+        **kwargs
     )
-
-    with pygmsh.geo.Geometry() as geom:
-        domain = geom.add_rectangle([0.0, 0.0, 0.0], 1.0, 1.0, mesh_size=lcar_max)
-        holes = []
-        for c, r in zip(centers, radii):
-            for off in offsets:
-                c_img = c + off
-                if circle_intersects_unit_square(c_img, float(r)):
-                    holes.append(geom.add_disk([float(c_img[0]), float(c_img[1]), 0.0], float(r), mesh_size=lcar_min))
-
-        if holes:
-            geom.boolean_difference(domain, geom.boolean_union(holes))
-
-        mesh = geom.generate_mesh()
-
-    points = mesh.points[:, :2]
-    cells = mesh.get_cells_type("triangle")
-    return Triangulation(points, cells)
+    rve.createGmshModel()
+    meshingParameters = {
+        "threads": None,
+        "refinementOptions": {
+            "maxMeshSize": "auto",
+            "inclusionRefinement": True,
+            # "interInclusionRefinement": True,
+            "elementsPerCircumference": boundary_elements,
+            "inclusionRefinementWidth": 10,
+            "transitionElements": "auto",
+        }
+    }
+    rve.createMesh(**meshingParameters)
+    return rve
 
 if __name__ == "__main__":
-    pass
+    import matplotlib.pyplot as plt
+    import asrvsn_mpl as ampl
+    from ..points.matern import matern_II_torus
+    from ..points.cvt import gradient_flow_cvt_torus
+    from ..domains.periodic import swiss_cheese
+
+    rng = np.random.default_rng(42)
+
+    r = 0.1
+    xs = matern_II_torus(1000, r, rng=rng)
+    xs = gradient_flow_cvt_torus(xs, 10, 1.0)
+    # mesh = swiss_cheese(xs, np.full(xs.shape[0], r), 0.01, 0.1)
+    # tri = Triangulation.from_gmsh(mesh)
+
+    # fig, ax = plt.subplots()
+    # ampl.ax_tri_2d(ax, tri.pts, tri.simplices)
+    # plt.show()
+    rve = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=100)
+    rve.visualizeMesh()

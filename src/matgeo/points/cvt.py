@@ -11,7 +11,7 @@ import matgeo.hmc_cpp as hmc_cpp
 from ..plane import PlanarPolygon
 from ..torus import voronoi_flat_torus
 
-def U_grad_torus(x: np.ndarray, scale: float=1.0) -> Tuple[float, np.ndarray]:
+def U_grad_cvt_torus(x: np.ndarray, scale: float=1.0) -> Tuple[float, np.ndarray]:
     '''
     Potential energy and gradient in two dimensions
     Takes x in R^2, calculates Voronoi using wraparound to [0, 1)^2
@@ -30,7 +30,7 @@ def U_grad_torus(x: np.ndarray, scale: float=1.0) -> Tuple[float, np.ndarray]:
     grad *= scale
     return energy, grad
 
-def gradient_flow_torus(
+def gradient_flow_cvt_torus(
         x: np.ndarray,
         n_steps: int,
         dt: float,
@@ -45,12 +45,12 @@ def gradient_flow_torus(
     scale = (rho ** 2) / x.shape[0]
 
     for _ in tqdm(range(n_steps)):
-        U, gradU = U_grad_torus(x, scale=scale)
+        U, gradU = U_grad_cvt_torus(x, scale=scale)
         x -= dt * gradU
         x = x % 1.0
     return x
 
-def sample_boltzmann_torus(
+def sample_boltzmann_cvt_torus(
         x: np.ndarray,
         n_steps: int,
         dt: float,
@@ -87,7 +87,7 @@ def sample_boltzmann_torus(
     steps = tqdm(range(n_steps)) if progress else range(n_steps)
     for _ in steps:
         # Energy & gradient at current state (scaled)
-        U, gradU = U_grad_torus(x, scale=scale)
+        U, gradU = U_grad_cvt_torus(x, scale=scale)
 
         # Draw momentum (mass = I)
         p0 = rng.normal(size=x.shape).astype(np.float64, copy=False)
@@ -104,7 +104,7 @@ def sample_boltzmann_torus(
             )
 
             # KICK (full except at the very end)
-            U_new, gradU_new = U_grad_torus(x_prop, scale=scale)
+            U_new, gradU_new = U_grad_cvt_torus(x_prop, scale=scale)
             if l != L_eff - 1:
                 p_prop -= eps * beta * gradU_new
 

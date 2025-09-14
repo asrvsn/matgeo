@@ -20,6 +20,7 @@ import alphashape
 from collections import defaultdict
 import trimesh
 import pyclesperanto_prototype as cle
+import gmsh
 
 import dolfinx.mesh as dmesh 
 from mpi4py import MPI
@@ -583,6 +584,15 @@ class Triangulation(Surface) :
         pts = np.concatenate(all_pts)
         simplices = np.concatenate(all_simplices)
         return Triangulation(pts, simplices)
+
+    @staticmethod
+    def from_gmsh(mesh) -> 'Triangulation':
+        '''
+        Convert a gmsh mesh to a triangulation
+        '''
+        pts = mesh.points[:, :2]
+        tris = mesh.get_cells_type("triangle")
+        return Triangulation(pts, tris)
     
 class ConvexTriangulation(Triangulation):
     ''' Triangulated convex hull '''

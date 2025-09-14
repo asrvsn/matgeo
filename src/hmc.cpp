@@ -125,7 +125,7 @@ static inline void drift_in_place(Eigen::Ref<positions_matrix> X,
                                   const Eigen::Ref<const momenta_matrix>& P,
                                   const double tau)
 {
-    X.noalias() += tau * P;   // in-place update of the Python array
+    X.noalias() += tau * P;   // in-place update 
     wrap_unit_square(X);
 }
 

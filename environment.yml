@@ -9,3 +9,5 @@ dependencies:
   - scikit-build-core
   - nanobind
   - ocl_icd_wrapper_apple
+  - pythonocc-core
+  - gmshmodel
