@@ -5,37 +5,63 @@ Gradient flows of chemical free energies
 import numpy as np
 import meshio
 from typing import Callable, Tuple
+from functools import partial
 
 import gmsh
 import basix
-import basix.ufl.element
+import basix.ufl
 import dolfinx
 import dolfinx.fem
+import dolfinx.plot
 import ufl
+import ufl.core.expr.Expr as UFLExpr
 from petsc4py import PETSc
+import pyvista
 
 from ..triangulation import Triangulation
+from ..domains.utils import get_exterior_tags, visualize_exterior_tags
 
-def get_inclusion_tags(mesh: dolfinx.mesh.Mesh) -> dolfinx.mesh.meshtags:
-    '''
-    Get the tags for the inclusions in the mesh
-    '''
-    tdim = mesh.topology.dim
-    mesh.topology.create_connectivity(tdim-1, tdim)
-    facets = dolfinx.mesh.exterior_facet_indices(mesh.topology)
-    vals = np.ones(len(facets), dtype=np.int32)
-    return dolfinx.mesh.meshtags(mesh, tdim-1, facets, vals)
+def monomer_mobility(D_m: float, phi_m: UFLExpr) -> UFLExpr:
+    ''' Aqueous monomer mobility '''
+    assert D_m > 0, 'Monomer diffusion coefficient must be positive'
+    return D_m * phi_m
+
+def polymer_mobility(D_p: float, phi_p: UFLExpr) -> UFLExpr:
+    ''' Aqueous polymer mobility '''
+    assert D_p > 0, 'Polymer diffusion coefficient must be positive'
+    return D_p * phi_p * (1 - phi_p)
+
+def polymerization_reaction(k_r: float, phi_m: UFLExpr, phi_p: UFLExpr) -> UFLExpr:
+    ''' Simple autocatalytic polymerization '''
+    assert k_r > 0, 'Polymerization reaction rate must be positive'
+    return k_r * phi_m * phi_p
+
+def polymerization_free_energy(N_m: float, N_p: float, chi_pm: float, chi_pw: float, phi_m: UFLExpr, phi_p: UFLExpr) -> UFLExpr:
+    ''' Polymerization free energy '''
+    assert 0 < N_m < np.inf, 'Monomer number must be positive'
+    assert 0 < N_p <= np.inf, 'Polymer number must be positive'
+    assert chi_pm <= 0, 'Flory-Huggins attractive coefficient for monomer-polymer interaction must be non-positive'
+    assert chi_pw > 0, 'Flory-Huggins repulsive coefficient for polymer-water (eff. polymer-non polymer) interaction must be positive'
+    # Entropy
+    expr = - phi_m * ufl.log(phi_m) / N_m 
+    if N_p < np.inf:
+        expr += - phi_p * ufl.log(phi_p) / N_p # Don't include the subexpression to avoid activating autodiff
+    # Flory-Huggins
+    expr += chi_pw * phi_p * (1 - phi_p)
+    if not np.isclose(chi_pm, 0):
+        expr += chi_pm * phi_m * phi_p # Don't include the subexpression to avoid activating autodiff
+    return expr
 
 def polymerization_induced_phase_separation(
         mesh: dolfinx.mesh.Mesh,
-        E_fun: Callable[[ufl.core.expr.Expr, ufl.core.expr.Expr], ufl.core.expr.Expr], # Free energy phi_m, phi_p -> E
-        R_fun: Callable[[ufl.core.expr.Expr, ufl.core.expr.Expr], ufl.core.expr.Expr], # Reaction term phi_m, phi_p -> R
-        M_m_fun: Callable[[ufl.core.expr.Expr], ufl.core.expr.Expr], # Mobility phi_m -> M_m
-        M_p_fun: Callable[[ufl.core.expr.Expr], ufl.core.expr.Expr], # Mobility phi_p -> M_p
-        kappa: float, # Ginzburg-Landau capillarity parameter
+        E_fun: Callable[[UFLExpr, UFLExpr], UFLExpr], # Free energy phi_m, phi_p -> E
+        R_fun: Callable[[UFLExpr, UFLExpr], UFLExpr], # Reaction term phi_m, phi_p -> R
+        M_m_fun: Callable[[UFLExpr], UFLExpr], # Mobility phi_m -> M_m
+        M_p_fun: Callable[[UFLExpr], UFLExpr], # Mobility phi_p -> M_p
+        kappa: float, # Ginzburg-Landau capillarity parameter for polymer phase
         q_m: float, # Monomer production rate at the boundary
         dt: float=1e-2,
-        theta: float=1/2, # Crank-Nicolson (theta=0 explicit, theta=1 implicit)
+        theta: float=1/2, # Theta method for time integration (theta=0 explicit, theta=1/2 Crank-Nicolson, theta=1 implicit)
     ):
     '''
     Model a generic single-component aqueous polymerization reaction.
@@ -47,12 +73,16 @@ def polymerization_induced_phase_separation(
         R: Function that takes (phi_m, phi_p) and returns the reaction term R
         M_m: Function that takes (phi_m) and returns the mobility M_m
         M_p: Function that takes (phi_p) and returns the mobility M_p
+        kappa: Ginzburg-Landau capillarity parameter
+        q_m: Monomer production rate at the boundary
+        dt: Time step
+        theta: Crank-Nicolson (theta=0 explicit, theta=1 implicit)
     '''
     # Validation
     assert kappa > 0, 'Interface penalty must be positive'
     
     # Boundary measure: use exterior facets since the box is periodic
-    ft = get_inclusion_tags(mesh)
+    ft = get_exterior_tags(mesh)
     ds = ufl.Measure('ds', domain=mesh, subdomain_data=ft)
     HOLES = 1
     
@@ -83,26 +113,29 @@ def polymerization_induced_phase_separation(
     J_p_mid = (1 - theta) * M_p_fun(phi_p0) * ufl.grad(mu_p0) + theta * M_p_fun(phi_p) * ufl.grad(mu_p)
 
     ## Functionals governing unknowns
-    F_phi_m = 
+    F_phi_m = (
         ufl.inner(phi_m - phi_m0, v_m) * ufl.dx + dt * (
             ufl.inner(R_mid, v_m) * ufl.dx + 
             ufl.inner(J_m_mid, ufl.grad(v_m)) * ufl.dx + 
             -(q_m * v_m * ds(HOLES)) # Implements J_m . n = -q_m on boundaries
         ) 
+    )
 
-    F_phi_p = 
+    F_phi_p = (
         ufl.inner(phi_p - phi_p0, v_p) * ufl.dx + dt * (
             -ufl.inner(R_mid, v_p) * ufl.dx + 
             ufl.inner(J_p_mid, ufl.grad(v_p)) * ufl.dx
             # Zero-flux BCs for phi_p (implicitly satisfied)
         )
+    )
 
     ### Ginzburg-Landau contribution for phi_p requires another equation
-    F_mu_p = 
+    F_mu_p = (
         ufl.inner(mu_p, v_mu_p) * ufl.dx - 
         ufl.inner(ufl.diff(E, phi_p), v_mu_p) * ufl.dx - 
         kappa * ufl.inner(ufl.grad(phi_p), ufl.grad(v_mu_p)) * ufl.dx
         # Zero-flux BCs for grad phi_p (implicitly satisfied)
+    )
 
     F = F_phi_m + F_phi_p + F_mu_p
 
@@ -118,7 +151,7 @@ def polymerization_induced_phase_separation(
     petsc_options = {
         "snes_type": "newtonls",
         "snes_linesearch_type": "none",
-        "snes_stol": np.sqrt(np.finfo(default_real_type).eps) * 1e-2,
+        "snes_stol": np.sqrt(np.finfo(dolfinx.default_real_type).eps) * 1e-2,
         "snes_atol": 0,
         "snes_rtol": 0,
         "ksp_type": "preonly",
@@ -146,25 +179,21 @@ if __name__ == '__main__':
     model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
     # model.visualizeMesh()
     mesh = dolfinx.io.gmshio.model_to_mesh(model)
-    ft = get_inclusion_tags(mesh)
     print('Created mesh.')
 
-    fac_topo, fac_types, fac_geom = dolfinx.plot.vtk_mesh(mesh, mesh.topology.dim-1)
-    # fac_topo is VTK connectivity: [n0, i0,i1,  n1, i2,i3, ...] for lines
-    offset = 0
-    xs, ys = [], []
-    while offset < len(fac_topo):
-        n = fac_topo[offset]; i0 = fac_topo[offset+1]; i1 = fac_topo[offset+2]
-        offset += 1 + n
-        pts = fac_geom[[i0, i1]]
-        xs.append(pts[:,0]); ys.append(pts[:,1])
-
-    plt.figure(figsize=(6,6))
-    for k,(x,y) in enumerate(zip(xs,ys)):
-        c = 'C1' if k in set(ft.indices) else 'k'
-        plt.plot(x, y, c, lw=1.5)
-    plt.gca().set_aspect('equal'); plt.axis('off')
-    plt.show()
+    visualize_exterior_tags(mesh)
 
     # chi_pm: float = 1.0 # Flory-Huggins attractive coefficient for monomer-polymer interaction
     # chi_pw: float = 1.0 # Flory-Huggins repulsive coefficient for polymer-water (eff. polymer-non polymer) interaction
+
+    polymerization_induced_phase_separation(
+        mesh,
+        partial(polymerization_free_energy, chi_pm=chi_pm, chi_pw=chi_pw),
+        partial(polymerization_reaction, k_r=k_r),
+        partial(monomer_mobility, D_m=D_m),
+        partial(polymer_mobility, D_p=D_p),
+        kappa=kappa,
+        q_m=q_m,
+        dt=1e-2,
+        theta=1/2,
+    )
