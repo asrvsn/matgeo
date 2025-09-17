@@ -12,14 +12,17 @@ import basix
 import basix.ufl
 import dolfinx
 import dolfinx.fem
+import dolfinx.fem.petsc
+import dolfinx.io
 import dolfinx.plot
 import ufl
-import ufl.core.expr.Expr as UFLExpr
+from ufl.core.expr import Expr as UFLExpr
 from petsc4py import PETSc
+from mpi4py import MPI
 import pyvista
 
 from ..triangulation import Triangulation
-from ..domains.utils import get_exterior_tags, visualize_exterior_tags
+from ..domains.utils import get_exterior_tags
 
 def monomer_mobility(D_m: float, phi_m: UFLExpr) -> UFLExpr:
     ''' Aqueous monomer mobility '''
@@ -44,13 +47,50 @@ def polymerization_free_energy(N_m: float, N_p: float, chi_pm: float, chi_pw: fl
     assert chi_pw > 0, 'Flory-Huggins repulsive coefficient for polymer-water (eff. polymer-non polymer) interaction must be positive'
     # Entropy
     expr = - phi_m * ufl.log(phi_m) / N_m 
-    if N_p < np.inf:
+    if not np.isclose(N_p, np.inf):
         expr += - phi_p * ufl.log(phi_p) / N_p # Don't include the subexpression to avoid activating autodiff
     # Flory-Huggins
     expr += chi_pw * phi_p * (1 - phi_p)
     if not np.isclose(chi_pm, 0):
         expr += chi_pm * phi_m * phi_p # Don't include the subexpression to avoid activating autodiff
     return expr
+
+def monomer_steady_shape(
+        mesh: dolfinx.mesh.Mesh,
+        D_m: float,
+        q_m: float,
+    ) -> dolfinx.fem.Function:
+    '''
+    Model a steady-state monomer distribution shape given influx q_m.
+    '''
+    assert D_m > 0, 'Monomer diffusion coefficient must be positive'
+    assert q_m > 0, 'Monomer production rate must be positive'
+
+    # Constants
+    ft = get_exterior_tags(mesh)
+    ds = ufl.Measure('ds', domain=mesh, subdomain_data=ft)
+    dx = ufl.dx(domain=mesh)
+    HOLES = 1
+    def compute_scalar(expr: UFLExpr) -> float:
+        return dolfinx.fem.assemble_scalar(dolfinx.fem.form(expr))
+    q_net = compute_scalar(-q_m * ds(HOLES))
+    area = compute_scalar(1.0 * dx)
+
+    # Solve problem
+    V = dolfinx.fem.functionspace(mesh, ('Lagrange', 1))
+    u = ufl.TrialFunction(V)
+    v = ufl.TestFunction(V)
+
+    a = ufl.inner(u, v) * dx
+    L = (
+        - q_net / (area * D_m) * v * dx # interior
+        + (q_m / D_m) * v * ds(HOLES) # boundary
+    )
+
+    problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=[], petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+    h_sol = problem.solve()
+    return h_sol
+
 
 def polymerization_induced_phase_separation(
         mesh: dolfinx.mesh.Mesh,
@@ -88,7 +128,7 @@ def polymerization_induced_phase_separation(
     
     # Elements and function spaces
     P1 = basix.ufl.element('Lagrange', mesh.basix_cell(), 1, dtype=dolfinx.default_real_type)
-    W = dolfinx.fem.FunctionSpace(mesh, (P1, P1, P1)) # phi_m, phi_p, mu_p
+    W = dolfinx.fem.functionspace(mesh, (P1, P1, P1)) # phi_m, phi_p, mu_p
 
     # Unknowns
     u = dolfinx.fem.Function(W) # current solution
@@ -169,6 +209,7 @@ if __name__ == '__main__':
     from ..points.matern import matern_II_torus
     from ..points.cvt import gradient_flow_cvt_torus
     from ..domains.periodic import swiss_cheese
+    from ..domains.utils import visualize_field, visualize_exterior_tags
 
     rng = np.random.default_rng(42)
 
@@ -178,22 +219,31 @@ if __name__ == '__main__':
 
     model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
     # model.visualizeMesh()
-    mesh = dolfinx.io.gmshio.model_to_mesh(model)
-    print('Created mesh.')
+    
+    # After swiss_cheese(), the gmsh model is automatically active in gmsh.model
+    mesh, _, _ = dolfinx.io.gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0, gdim=2)
+    print('Created mesh with', mesh.geometry.x.shape[0], 'vertices')
 
-    visualize_exterior_tags(mesh)
+    D_m = 1.0
+    q_m = 1.0
+
+    w_m = monomer_steady_shape(mesh, D_m, q_m)
+    print('Computed steady-state monomer shape.')
+    visualize_field(mesh, w_m)
+
+    # visualize_exterior_tags(mesh)
 
     # chi_pm: float = 1.0 # Flory-Huggins attractive coefficient for monomer-polymer interaction
     # chi_pw: float = 1.0 # Flory-Huggins repulsive coefficient for polymer-water (eff. polymer-non polymer) interaction
 
-    polymerization_induced_phase_separation(
-        mesh,
-        partial(polymerization_free_energy, chi_pm=chi_pm, chi_pw=chi_pw),
-        partial(polymerization_reaction, k_r=k_r),
-        partial(monomer_mobility, D_m=D_m),
-        partial(polymer_mobility, D_p=D_p),
-        kappa=kappa,
-        q_m=q_m,
-        dt=1e-2,
-        theta=1/2,
-    )
+    # polymerization_induced_phase_separation(
+    #     mesh,
+    #     partial(polymerization_free_energy, chi_pm=chi_pm, chi_pw=chi_pw),
+    #     partial(polymerization_reaction, k_r=k_r),
+    #     partial(monomer_mobility, D_m=D_m),
+    #     partial(polymer_mobility, D_p=D_p),
+    #     kappa=kappa,
+    #     q_m=q_m,
+    #     dt=1e-2,
+    #     theta=1/2,
+    # )

@@ -27,7 +27,7 @@ class SwissCheeseRVE(RandomInclusionRVE):
         """
         super().__init__(
             size=size,
-            inclusionSets=np.array([[0.01, 0.001]])  # Small dummy inclusion set
+            inclusionSets=np.array([[0.01, 0.001]]),  # Small dummy inclusion set
             inclusionType="Circle",
             origin=[0.0, 0.0, 0.0],
             periodicityFlags=[1, 1, 0],  # Periodic in x and y

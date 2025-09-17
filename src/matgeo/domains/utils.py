@@ -35,3 +35,21 @@ def visualize_exterior_tags(mesh: dolfinx.mesh.Mesh):
     p.view_xy()
     p.reset_camera()
     p.show()
+
+def visualize_field(mesh: dolfinx.mesh.Mesh, field: dolfinx.fem.Function, warp: bool=True):
+    '''
+    Visualize a field on a mesh
+    '''
+    tdim = mesh.topology.dim
+    topo, types, geom = dolfinx.plot.vtk_mesh(mesh, tdim)
+    grid = pyvista.UnstructuredGrid(topo, types, geom)
+    grid.point_data['Field'] = field.x.array
+    grid.set_active_scalars('Field')
+    p = pyvista.Plotter(window_size=(2000, 2000))
+    p.add_mesh(grid, scalars='Field', show_edges=True)
+    p.view_xy()
+    p.reset_camera()
+    # if warp:
+    #     warped = grid.warp_by_scalar()
+    #     p.add_mesh(warped)
+    p.show()
