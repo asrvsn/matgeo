@@ -5,6 +5,7 @@ dependencies:
   - python=3.12
   - numpy>=2.2.0
   - fenics-dolfinx
+  - dolfinx_mpc
   - mpich
   - scikit-build-core
   - nanobind

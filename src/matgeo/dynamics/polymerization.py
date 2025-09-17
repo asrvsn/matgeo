@@ -6,6 +6,7 @@ import numpy as np
 import meshio
 from typing import Callable, Tuple
 from functools import partial
+import pdb
 
 import gmsh
 import basix
@@ -22,7 +23,8 @@ from mpi4py import MPI
 import pyvista
 
 from ..triangulation import Triangulation
-from ..domains.utils import get_exterior_tags
+from ..domains.utils import *
+from ..domains.periodic import swiss_cheese, SwissCheeseRVE
 
 def monomer_mobility(D_m: float, phi_m: UFLExpr) -> UFLExpr:
     ''' Aqueous monomer mobility '''
@@ -56,7 +58,7 @@ def polymerization_free_energy(N_m: float, N_p: float, chi_pm: float, chi_pw: fl
     return expr
 
 def monomer_steady_shape(
-        mesh: dolfinx.mesh.Mesh,
+        model: SwissCheeseRVE,
         D_m: float,
         q_m: float,
     ) -> dolfinx.fem.Function:
@@ -66,28 +68,31 @@ def monomer_steady_shape(
     assert D_m > 0, 'Monomer diffusion coefficient must be positive'
     # assert q_m > 0, 'Monomer production rate must be positive'
 
+    # Mesh and measure
+    element = ('Lagrange', 1)
+    mesh, ft, ds, V, mpc = model.setup_dolfinx(element)
+    
     # Constants
-    ft = get_exterior_tags(mesh)
-    ds = ufl.Measure('ds', domain=mesh, subdomain_data=ft)
-    dx = ufl.dx(domain=mesh)
-    HOLES = 1
-    def compute_scalar(expr: UFLExpr) -> float:
-        return dolfinx.fem.assemble_scalar(dolfinx.fem.form(expr))
-    q_net = compute_scalar(-q_m * ds(HOLES))
-    area = compute_scalar(1.0 * dx)
+    q_net = compute_scalar(-q_m * ds)
+    area = compute_scalar(1.0 * ufl.dx)
+    print(f'Dolfinx domain area: {area}')
+    print(f'Dolfinx boundary length: {compute_scalar(1.0 * ds)}')
 
     # Solve problem
-    V = dolfinx.fem.functionspace(mesh, ('Lagrange', 1))
     u = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
 
-    a = ufl.inner(u, v) * dx
+    a = ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx
     L = (
-        - q_net / (area * D_m) * v * dx # interior
-        + (q_m / D_m) * v * ds(HOLES) # boundary
+        - q_net / (area * D_m) * v * ufl.dx # interior
+        + (q_m / D_m) * v * ds # boundary
     )
 
-    problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=[], petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+    ## Pin a single node to enforce uniqueness
+    dofs = np.array([0], dtype=np.int32)
+    bc0  = dolfinx.fem.dirichletbc(PETSc.ScalarType(0.0), dofs, V)
+
+    problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=[bc0], petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
     h_sol = problem.solve()
     return h_sol
 
@@ -208,7 +213,6 @@ def polymerization_induced_phase_separation(
 if __name__ == '__main__':
     from ..points.matern import matern_II_torus
     from ..points.cvt import gradient_flow_cvt_torus
-    from ..domains.periodic import swiss_cheese
     from ..domains.utils import visualize_field, visualize_exterior_tags
 
     rng = np.random.default_rng(42)
@@ -218,18 +222,16 @@ if __name__ == '__main__':
     xs = gradient_flow_cvt_torus(xs, 500, 1.0)
 
     model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
-    model.visualizeMesh()
+    print(f'True domain area: {1 - xs.shape[0] * np.pi * r**2}')
+    print(f'True boundary length: {xs.shape[0] * 2 * np.pi * r}')
+    # model.visualizeMesh()
     
-    # # After swiss_cheese(), the gmsh model is automatically active in gmsh.model
-    # mesh, _, _ = dolfinx.io.gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0, gdim=2)
-    # print('Created mesh with', mesh.geometry.x.shape[0], 'vertices')
+    D_m = 1.0
+    q_m = 1.0
 
-    # D_m = 1.0
-    # q_m = 1.0
-
-    # w_m = monomer_steady_shape(mesh, D_m, q_m)
-    # print('Computed steady-state monomer shape.')
-    # visualize_field(mesh, w_m)
+    w_m = monomer_steady_shape(model, D_m, q_m)
+    print('Computed steady-state monomer shape.')
+    visualize_field(model.get_physical_mesh(1), w_m)
 
     # visualize_exterior_tags(mesh)
 

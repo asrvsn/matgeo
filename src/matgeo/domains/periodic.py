@@ -8,7 +8,16 @@ import meshio
 from mpi4py import MPI
 import dolfinx.io
 import dolfinx.mesh
+import dolfinx_mpc
+import pdb
+import basix
+import basix.ufl
+import ufl
+from typing import Tuple
+
 from gmshModel.Model.RandomInclusionRVE import RandomInclusionRVE
+
+from .utils import *
 
 class SwissCheeseRVE(RandomInclusionRVE):
     """
@@ -87,21 +96,67 @@ class SwissCheeseRVE(RandomInclusionRVE):
         
         return super().generate_mesh(**mesh_options)
 
-    def domain_mesh_dolfinx(self):
+    def to_dolfinx(self) -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.meshtags, dolfinx.mesh.meshtags]:
+        return dolfinx.io.gmshio.model_to_mesh(self.gmshAPI, MPI.COMM_WORLD, 0, gdim=self.dimension)
+
+    def get_physical_mesh(self, physical_group: int):
         """
         Convert the current gmsh model to a DOLFiN-X mesh and return a submesh
-        consisting only of cells in physical group 1 (the fluid domain).
+        consisting only of cells in the given physical group.
         
         Returns:
-            dolfinx.mesh.Mesh: Submesh of the fluid domain (physical group 1)
+            dolfinx.mesh.Mesh: Submesh of the physical group
         """
-        mesh, cell_tags, _ = dolfinx.io.gmshio.model_to_mesh(self.gmshAPI, MPI.COMM_WORLD, 0, gdim=self.dimension)
+        mesh, cell_tags, _ = self.to_dolfinx()
         assert cell_tags is not None and len(cell_tags.indices) > 0, "Cell tags are not available"
-        cells_pg1 = cell_tags.indices[cell_tags.values == 1]
-        assert len(cells_pg1) > 0, "No cells in physical group 1"
+        cells_pg = cell_tags.indices[cell_tags.values == physical_group]
+        assert len(cells_pg) > 0, "No cells in physical group"
         tdim = mesh.topology.dim
-        submesh, _, _, _ = dolfinx.mesh.create_submesh(mesh, tdim, cells_pg1)
+        submesh, _, _, _ = dolfinx.mesh.create_submesh(mesh, tdim, cells_pg)
         return submesh
+
+    def setup_dolfinx(self, element: basix.ufl.element) -> Tuple[dolfinx.mesh.Mesh, dolfinx.mesh.meshtags, ufl.Measure, dolfinx.fem.functionspace, dolfinx_mpc.MultiPointConstraint]:
+        '''
+        Get everything you need to solve a dolfinx problem on the domain.
+        '''
+        # 1. Make mesh
+        mesh = self.get_physical_mesh(1) # Domain
+        tdim = mesh.topology.dim
+        assert tdim == 2, "Only 2D meshes are supported"
+        mesh.topology.create_connectivity(tdim-1, 0)
+        mesh.topology.create_connectivity(tdim-1, tdim)
+        e2v = mesh.topology.connectivity(tdim-1, 0)
+
+        # 1. Split exterior facets into periodic boundary and holes
+        ext_indices = dolfinx.mesh.exterior_facet_indices(mesh.topology)
+        centroids = np.array([
+            mesh.geometry.x[e2v.links(f)].mean(axis=0) for f in ext_indices
+        ])
+        ID_HOLES, ID_LEFT, ID_RIGHT, ID_TOP, ID_BOTTOM = 1, 2, 3, 4, 5
+        def label_centroid(cntr: np.ndarray) -> int:
+            if np.isclose(cntr[0], 0.0): return ID_LEFT
+            elif np.isclose(cntr[0], 1.0): return ID_RIGHT
+            elif np.isclose(cntr[1], 1.0): return ID_TOP
+            elif np.isclose(cntr[1], 0.0): return ID_BOTTOM
+            else: return ID_HOLES
+        labels = np.array([label_centroid(c) for c in centroids], dtype=np.int32)
+        ext_facetags = dolfinx.mesh.meshtags(mesh, tdim-1, ext_indices, labels)
+
+        # 2. Create boundary measure for holes
+        ds = ufl.Measure('ds', domain=mesh, subdomain_data=ext_facetags)(1)
+        
+        # 2. Create function space and multi-point constraint for periodicity
+        V = dolfinx.fem.functionspace(mesh, element)
+        mpc = dolfinx_mpc.MultiPointConstraint(V)
+        mpc.create_periodic_constraint_topological( # Left-right
+            V, ext_facetags, ID_LEFT, lambda x: np.array([x[0]-1, x[1]]), []
+        )
+        mpc.create_periodic_constraint_topological( # Top-bottom
+            V, ext_facetags, ID_TOP, lambda x: np.array([x[0], x[1]-1]), []
+        )
+        mpc.finalize()
+
+        return mesh, ext_facetags, ds, V, mpc
 
 def swiss_cheese(
         centers: np.ndarray, 
@@ -150,8 +205,6 @@ if __name__ == "__main__":
     import asrvsn_mpl as ampl
     from ..points.matern import matern_II_torus
     from ..points.cvt import gradient_flow_cvt_torus
-    from ..domains.periodic import swiss_cheese
-    from ..domains.utils import visualize_exterior_tags
 
     rng = np.random.default_rng(42)
 
@@ -165,7 +218,16 @@ if __name__ == "__main__":
     # ampl.ax_tri_2d(ax, tri.pts, tri.simplices)
     # plt.show()
     rve = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
+    print(f'True boundary length: {xs.shape[0] * 2 * np.pi * r}')
     # rve.visualizeMesh()
 
-    domain_mesh = rve.domain_mesh_dolfinx()
-    visualize_exterior_tags(domain_mesh)
+    # domain_mesh = rve.get_physical_mesh(2)
+    # visualize_exterior_tags(domain_mesh)
+
+    # rve.setup_dolfinx(('Lagrange', 1))
+    # mesh, cell_tags, facet_tags = rve.to_dolfinx()
+    # sub_mesh, _, _, _ = get_submesh_by_cell(mesh, cell_tags, 1)
+
+    mesh, ft, ds, V, mpc = rve.setup_dolfinx(('Lagrange', 1)) 
+    print(f'Dolfinx boundary length: {compute_scalar(1.0 * ds)}')
+    visualize_tags(mesh, ft)  
