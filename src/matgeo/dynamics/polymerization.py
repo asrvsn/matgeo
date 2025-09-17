@@ -64,7 +64,7 @@ def monomer_steady_shape(
     Model a steady-state monomer distribution shape given influx q_m.
     '''
     assert D_m > 0, 'Monomer diffusion coefficient must be positive'
-    assert q_m > 0, 'Monomer production rate must be positive'
+    # assert q_m > 0, 'Monomer production rate must be positive'
 
     # Constants
     ft = get_exterior_tags(mesh)
@@ -215,21 +215,21 @@ if __name__ == '__main__':
 
     r = 0.1
     xs = matern_II_torus(1000, r, rng=rng)
-    xs = gradient_flow_cvt_torus(xs, 10, 1.0)
+    xs = gradient_flow_cvt_torus(xs, 500, 1.0)
 
     model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
-    # model.visualizeMesh()
+    model.visualizeMesh()
     
-    # After swiss_cheese(), the gmsh model is automatically active in gmsh.model
-    mesh, _, _ = dolfinx.io.gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0, gdim=2)
-    print('Created mesh with', mesh.geometry.x.shape[0], 'vertices')
+    # # After swiss_cheese(), the gmsh model is automatically active in gmsh.model
+    # mesh, _, _ = dolfinx.io.gmshio.model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0, gdim=2)
+    # print('Created mesh with', mesh.geometry.x.shape[0], 'vertices')
 
-    D_m = 1.0
-    q_m = 1.0
+    # D_m = 1.0
+    # q_m = 1.0
 
-    w_m = monomer_steady_shape(mesh, D_m, q_m)
-    print('Computed steady-state monomer shape.')
-    visualize_field(mesh, w_m)
+    # w_m = monomer_steady_shape(mesh, D_m, q_m)
+    # print('Computed steady-state monomer shape.')
+    # visualize_field(mesh, w_m)
 
     # visualize_exterior_tags(mesh)
 

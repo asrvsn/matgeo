@@ -5,6 +5,9 @@ import numpy as np
 import pygmsh
 import gmsh
 import meshio
+from mpi4py import MPI
+import dolfinx.io
+import dolfinx.mesh
 from gmshModel.Model.RandomInclusionRVE import RandomInclusionRVE
 
 class SwissCheeseRVE(RandomInclusionRVE):
@@ -75,6 +78,7 @@ class SwissCheeseRVE(RandomInclusionRVE):
         return (center[0] + radius > 0.0 and center[0] - radius < 1.0 and 
                 center[1] + radius > 0.0 and center[1] - radius < 1.0)
     
+    
     def generate_mesh(self, **mesh_options):
         """Generate the mesh with appropriate sizing."""
         # Set mesh size options
@@ -82,6 +86,22 @@ class SwissCheeseRVE(RandomInclusionRVE):
             mesh_options['characteristicLength'] = self.mesh_size
         
         return super().generate_mesh(**mesh_options)
+
+    def domain_mesh_dolfinx(self):
+        """
+        Convert the current gmsh model to a DOLFiN-X mesh and return a submesh
+        consisting only of cells in physical group 1 (the fluid domain).
+        
+        Returns:
+            dolfinx.mesh.Mesh: Submesh of the fluid domain (physical group 1)
+        """
+        mesh, cell_tags, _ = dolfinx.io.gmshio.model_to_mesh(self.gmshAPI, MPI.COMM_WORLD, 0, gdim=self.dimension)
+        assert cell_tags is not None and len(cell_tags.indices) > 0, "Cell tags are not available"
+        cells_pg1 = cell_tags.indices[cell_tags.values == 1]
+        assert len(cells_pg1) > 0, "No cells in physical group 1"
+        tdim = mesh.topology.dim
+        submesh, _, _, _ = dolfinx.mesh.create_submesh(mesh, tdim, cells_pg1)
+        return submesh
 
 def swiss_cheese(
         centers: np.ndarray, 
@@ -131,11 +151,12 @@ if __name__ == "__main__":
     from ..points.matern import matern_II_torus
     from ..points.cvt import gradient_flow_cvt_torus
     from ..domains.periodic import swiss_cheese
+    from ..domains.utils import visualize_exterior_tags
 
     rng = np.random.default_rng(42)
 
     r = 0.1
-    xs = matern_II_torus(1000, r, rng=rng)
+    xs = matern_II_torus(100, r, rng=rng)
     xs = gradient_flow_cvt_torus(xs, 10, 1.0)
     # mesh = swiss_cheese(xs, np.full(xs.shape[0], r), 0.01, 0.1)
     # tri = Triangulation.from_gmsh(mesh)
@@ -144,4 +165,7 @@ if __name__ == "__main__":
     # ampl.ax_tri_2d(ax, tri.pts, tri.simplices)
     # plt.show()
     rve = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
-    rve.visualizeMesh()
+    # rve.visualizeMesh()
+
+    domain_mesh = rve.domain_mesh_dolfinx()
+    visualize_exterior_tags(domain_mesh)
