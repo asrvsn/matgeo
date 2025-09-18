@@ -8,6 +8,7 @@ from typing import Callable, Tuple
 from functools import partial
 import pdb
 import matplotlib.pyplot as plt
+import time
 
 import gmsh
 import basix
@@ -67,14 +68,13 @@ def monomer_secretion(
         n_steps: int,
         dt: float,
         theta: float=1/2,
+        live: bool=True,
+        delay: float=0.1, # Delay in seconds between frames
     ) -> Tuple[dolfinx.mesh.Mesh, dolfinx.fem.Function]:
     '''
     Diffusion of monomer with influx q_m through boundary.
     '''
-    assert D_m > 0, 'Monomer diffusion coefficient must be positive'
-    assert q_m > 0, 'Monomer production rate must be positive'
-    assert dt > 0, 'Time step must be positive'
-    assert 0 <= theta <= 1, 'Theta must be between 0 and 1'
+    assert D_m > 0 and q_m >= 0 and dt > 0 and 0.0 <= theta <= 1.0 and n_steps > 0
     
     # Mesh and measure
     element = ('Lagrange', 1)
@@ -84,23 +84,26 @@ def monomer_secretion(
     # Solve problem
     sol_n = dolfinx.fem.Function(V)
     sol_n.x.array[:] = 0.0
+    sol_n_next = dolfinx.fem.Function(V)
     u = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
 
-    ## Create plotter
-    topo, cells, geom = dolfinx.plot.vtk_mesh(V)
-    grid = pyvista.UnstructuredGrid(topo, cells, geom)
-    grid.point_data['sol_n'] = sol_n.x.array
-    plotter = pyvista.Plotter(window_size=(2000, 2000))
-    renderer = plotter.add_mesh(grid, show_edges=True, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
-    plotter.view_xy()
-    plotter.reset_camera()
+    if live:
+        ## Create plotter
+        grid = pyvista.UnstructuredGrid(*dolfinx.plot.vtk_mesh(V))
+        grid.point_data['sol_n'] = sol_n.x.array.copy()
+        plotter = pyvista.Plotter(window_size=(2000, 2000))
+        renderer = plotter.add_mesh(grid, show_edges=True, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
+        plotter.view_xy()
+        plotter.reset_camera()
+        plotter.show(auto_close=False, interactive_update=True)
 
+    ## Define forms
     A_form = (1.0/dt) * u * v * dx \
         + D_m * theta * ufl.dot(ufl.grad(u), ufl.grad(v)) * dx
     L_form = (1.0/dt) * sol_n * v * dx \
-        - D_m * (1.0 - theta) * ufl.dot(ufl.grad(sol_n), ufl.grad(v)) * dx \ 
-        + (q_m / D_m) * v * ds
+        - D_m * (1.0 - theta) * ufl.dot(ufl.grad(sol_n), ufl.grad(v)) * dx \
+        + q_m * v * ds # Neumann boundary condition
 
     ## Assemble once
     A = dolfinx_mpc.assemble_matrix(dolfinx.fem.form(A_form), mpc, bcs=[])
@@ -112,31 +115,40 @@ def monomer_secretion(
     ## Solver
     solver = PETSc.KSP().create(A.comm)
     solver.setOperators(A)
-    solver.setType(PETSc.KSP.Type.CG)
-    solver.setTolerances(rtol=1e-10, atol=1e-10, max_it=1000)
+    solver.setType('cg')
+    solver.setTolerances(rtol=1e-10, atol=0.0, max_it=1000)
     pc = solver.getPC()
-    pc.setType(PETSc.PC.Type.HYPRE)
+    pc.setType('hypre')
     pc.setHYPREType('boomeramg')
 
     t = 0.0
     for n in tqdm(range(n_steps)):
+        wall_t = time.perf_counter()
+        
         # Assemble time-dependent RHS 
         b.zeroEntries()
-        b = dolfinx_mpc.assemble_vector(L_compiled, mpc, bcs=[], b=b)
+        b = dolfinx_mpc.assemble_vector(L_compiled, mpc, b=b)
 
         # Solve Ax = b
         solver.solve(b, x)
 
         # Apply periodicity constraints
-        sol_n_fun = dolfinx.fem.Function(V)
-        mpc.prolong_vector(x, sol_n_fun.vector)
-        mpc.backsubstitution(sol_n_fun.vector)
+        mpc.backsubstitution(x)
+        sol_n_next.x.array[:] = x.array
 
         # Update solution
-        sol_n.x.array[:] = sol_n_fun.vector.array[:]
-        plotter.update_scalars(sol_n.x.array, render=False)
-        plotter.write_frame()
+        sol_n.x.array[:] = sol_n_next.x.array
+        if live:
+            elapsed = time.perf_counter() - wall_t
+            if elapsed < delay:
+                time.sleep(delay - elapsed)
+            grid.point_data['sol_n'] = sol_n.x.array.copy()
+            plotter.update_scalars(sol_n.x.array)
+            # plotter.render()
         t += dt
+
+    if live:
+        plotter.close()
 
     return mesh, sol_n
 
@@ -323,12 +335,14 @@ if __name__ == '__main__':
     print(f'True boundary length: {xs.shape[0] * 2 * np.pi * r}')
     # model.visualizeMesh()
     
-    D_m = 1.0
+    D_m = 0.01
     q_m = 1.0
 
-    mesh, w_m = monomer_steady_shape(model, D_m, q_m)
-    print('Computed steady-state monomer shape.')
-    visualize_field(mesh, w_m, warp=False)
+    # mesh, w_m = monomer_steady_shape(model, D_m, q_m)
+    # print('Computed steady-state monomer shape.')
+    # visualize_field(mesh, w_m, warp=False)
+
+    mesh, sol_n = monomer_secretion(model, D_m, q_m, n_steps=100, dt=1e-3, theta=1/2, live=True)
 
     # visualize_exterior_tags(mesh)
 

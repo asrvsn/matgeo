@@ -151,12 +151,12 @@ class SwissCheeseRVE(RandomInclusionRVE):
         V = dolfinx.fem.functionspace(mesh, element)
         mpc = dolfinx_mpc.MultiPointConstraint(V)
 
-        # mpc.create_periodic_constraint_topological( # Right (slave) -> left
-        #     V, ext_facetags, ID_RIGHT, lambda x: np.array([x[0]-1, x[1]]), []
-        # )
-        # mpc.create_periodic_constraint_topological( # Top (slave) -> bottom
-        #     V, ext_facetags, ID_TOP, lambda x: np.array([x[0], x[1]-1]), []
-        # )
+        mpc.create_periodic_constraint_topological( # Right (slave) -> left
+            V, ext_facetags, ID_RIGHT, lambda x: np.array([x[0]-1, x[1]]), []
+        )
+        mpc.create_periodic_constraint_topological( # Top (slave) -> bottom
+            V, ext_facetags, ID_TOP, lambda x: np.array([x[0], x[1]-1]), []
+        )
         # pdb.set_trace()
         mpc.finalize()
 
