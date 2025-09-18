@@ -1,12 +1,13 @@
 '''
 Utilities for dolfinx mesh
 '''
-from typing import Tuple
+from typing import Tuple, List
 import numpy as np
 import dolfinx.mesh
 import dolfinx.plot
 import pyvista
 from ufl.core.expr import Expr as UFLExpr
+import dolfinx.fem
 
 def get_exterior_tags(mesh: dolfinx.mesh.Mesh) -> dolfinx.mesh.meshtags:
     '''
@@ -50,10 +51,31 @@ def visualize_field(mesh: dolfinx.mesh.Mesh, field: dolfinx.fem.Function, warp: 
     p.add_mesh(grid, scalars='Field', show_edges=True)
     p.view_xy()
     p.reset_camera()
-    # if warp:
-    #     warped = grid.warp_by_scalar()
-    #     p.add_mesh(warped)
+    if warp:
+        warped = grid.warp_by_scalar()
+        p.add_mesh(warped)
     p.show()
+
+def visualize_periodic_domain(mesh: dolfinx.mesh.Mesh, ft: dolfinx.mesh.meshtags, assoc: List[Tuple[int, int]]):
+    tdim = mesh.topology.dim
+    cells_topo, cell_types, geom = dxf_plot.vtk_mesh(mesh, tdim)
+    grid = pv.UnstructuredGrid(cells_topo, cell_types, geom)
+    f_topo, f_types, f_geom = dolfinx.plot.vtk_mesh(mesh, tdim-1)
+    fgrid = pv.UnstructuredGrid(f_topo, f_types, f_geom)
+
+    # attach facet tags to the facet grid
+    tags = np.full(fgrid.n_cells, -1, dtype=np.int32)
+    tags[ft.indices] = ft.values
+    fgrid.cell_data["FacetTags"] = tags
+
+    # facet centroids (for arrows)
+    centroids = get_facet_centroids(mesh, np.arange(fgrid.n_cells, dtype=np.int32))
+    fgrid.point_data["Centroids"] = centroids
+
+    # bbox and cell lengths
+    bbmin = mesh.geometry.x.min(axis=0)
+    bbmax = mesh.geometry.x.max(axis=0)
+    Lx, Ly = float(bbmax[0]-bbmin[0]), float(bbmax[1]-bbmin[1])
 
 def get_submesh_by_cell(mesh: dolfinx.mesh.Mesh, cell_tags: dolfinx.mesh.meshtags, id: int) -> Tuple[dolfinx.mesh.Mesh, dolfinx.mesh.meshtags]:
     assert cell_tags is not None and len(cell_tags.indices) > 0, "Cell tags are not available"
@@ -64,3 +86,23 @@ def get_submesh_by_cell(mesh: dolfinx.mesh.Mesh, cell_tags: dolfinx.mesh.meshtag
 
 def compute_scalar(expr: UFLExpr) -> float:
     return dolfinx.fem.assemble_scalar(dolfinx.fem.form(expr))
+
+def get_facet_centroids(mesh: dolfinx.mesh.Mesh, indices: np.ndarray) -> np.ndarray:
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim-1, 0)
+    f2v = mesh.topology.connectivity(tdim-1, 0)
+    centroids = np.array([mesh.geometry.x[f2v.links(f)].mean(axis=0) for f in indices])[:, :2]
+    return centroids
+
+def check_periodicity(mesh: dolfinx.mesh.Mesh, ft: dolfinx.mesh.meshtags, fun: dolfinx.fem.Function, right_tag: int, top_tag: int):
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim-1, 0)
+    f2v = mesh.topology.connectivity(tdim-1, 0)
+    right_vertices = np.concatenate([f2v.links(f) for f in ft.indices[ft.values == right_tag]])
+    top_vertices = np.concatenate([f2v.links(f) for f in ft.indices[ft.values == top_tag]])
+
+## Pin a single node to enforce uniqueness
+# anchor = np.array([0.5, 0.5])
+# i_anchor = np.argmin(np.linalg.norm(V.tabulate_dof_coordinates()[:, :2] - anchor, axis=1))
+# bc_anchor = dolfinx.fem.dirichletbc(PETSc.ScalarType(0.0), np.array([i_anchor], dtype=np.int32), V)
+# bcs = [bc_anchor]

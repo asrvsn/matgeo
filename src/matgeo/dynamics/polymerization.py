@@ -7,6 +7,7 @@ import meshio
 from typing import Callable, Tuple
 from functools import partial
 import pdb
+import matplotlib.pyplot as plt
 
 import gmsh
 import basix
@@ -16,11 +17,13 @@ import dolfinx.fem
 import dolfinx.fem.petsc
 import dolfinx.io
 import dolfinx.plot
+import dolfinx_mpc
 import ufl
 from ufl.core.expr import Expr as UFLExpr
 from petsc4py import PETSc
 from mpi4py import MPI
 import pyvista
+from tqdm import tqdm
 
 from ..triangulation import Triangulation
 from ..domains.utils import *
@@ -57,11 +60,91 @@ def polymerization_free_energy(N_m: float, N_p: float, chi_pm: float, chi_pw: fl
         expr += chi_pm * phi_m * phi_p # Don't include the subexpression to avoid activating autodiff
     return expr
 
+def monomer_secretion(
+        model: SwissCheeseRVE,
+        D_m: float,
+        q_m: float,
+        n_steps: int,
+        dt: float,
+        theta: float=1/2,
+    ) -> Tuple[dolfinx.mesh.Mesh, dolfinx.fem.Function]:
+    '''
+    Diffusion of monomer with influx q_m through boundary.
+    '''
+    assert D_m > 0, 'Monomer diffusion coefficient must be positive'
+    assert q_m > 0, 'Monomer production rate must be positive'
+    assert dt > 0, 'Time step must be positive'
+    assert 0 <= theta <= 1, 'Theta must be between 0 and 1'
+    
+    # Mesh and measure
+    element = ('Lagrange', 1)
+    mesh, ft, ds, V, mpc = model.setup_dolfinx(element)
+    dx = ufl.Measure('dx', domain=mesh)
+
+    # Solve problem
+    sol_n = dolfinx.fem.Function(V)
+    sol_n.x.array[:] = 0.0
+    u = ufl.TrialFunction(V)
+    v = ufl.TestFunction(V)
+
+    ## Create plotter
+    topo, cells, geom = dolfinx.plot.vtk_mesh(V)
+    grid = pyvista.UnstructuredGrid(topo, cells, geom)
+    grid.point_data['sol_n'] = sol_n.x.array
+    plotter = pyvista.Plotter(window_size=(2000, 2000))
+    renderer = plotter.add_mesh(grid, show_edges=True, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
+    plotter.view_xy()
+    plotter.reset_camera()
+
+    A_form = (1.0/dt) * u * v * dx \
+        + D_m * theta * ufl.dot(ufl.grad(u), ufl.grad(v)) * dx
+    L_form = (1.0/dt) * sol_n * v * dx \
+        - D_m * (1.0 - theta) * ufl.dot(ufl.grad(sol_n), ufl.grad(v)) * dx \ 
+        + (q_m / D_m) * v * ds
+
+    ## Assemble once
+    A = dolfinx_mpc.assemble_matrix(dolfinx.fem.form(A_form), mpc, bcs=[])
+    A.assemble()
+    L_compiled = dolfinx.fem.form(L_form)
+    x = A.createVecRight() # Solution vector
+    b = A.createVecRight() # RHS vector
+
+    ## Solver
+    solver = PETSc.KSP().create(A.comm)
+    solver.setOperators(A)
+    solver.setType(PETSc.KSP.Type.CG)
+    solver.setTolerances(rtol=1e-10, atol=1e-10, max_it=1000)
+    pc = solver.getPC()
+    pc.setType(PETSc.PC.Type.HYPRE)
+    pc.setHYPREType('boomeramg')
+
+    t = 0.0
+    for n in tqdm(range(n_steps)):
+        # Assemble time-dependent RHS 
+        b.zeroEntries()
+        b = dolfinx_mpc.assemble_vector(L_compiled, mpc, bcs=[], b=b)
+
+        # Solve Ax = b
+        solver.solve(b, x)
+
+        # Apply periodicity constraints
+        sol_n_fun = dolfinx.fem.Function(V)
+        mpc.prolong_vector(x, sol_n_fun.vector)
+        mpc.backsubstitution(sol_n_fun.vector)
+
+        # Update solution
+        sol_n.x.array[:] = sol_n_fun.vector.array[:]
+        plotter.update_scalars(sol_n.x.array, render=False)
+        plotter.write_frame()
+        t += dt
+
+    return mesh, sol_n
+
 def monomer_steady_shape(
         model: SwissCheeseRVE,
         D_m: float,
         q_m: float,
-    ) -> dolfinx.fem.Function:
+    ) -> Tuple[dolfinx.mesh.Mesh, dolfinx.fem.Function]:
     '''
     Model a steady-state monomer distribution shape given influx q_m.
     '''
@@ -71,30 +154,33 @@ def monomer_steady_shape(
     # Mesh and measure
     element = ('Lagrange', 1)
     mesh, ft, ds, V, mpc = model.setup_dolfinx(element)
+    dx = ufl.Measure('dx', domain=mesh)
     
     # Constants
-    q_net = compute_scalar(-q_m * ds)
-    area = compute_scalar(1.0 * ufl.dx)
+    L_holes = compute_scalar(1.0 * ds)
+    area = compute_scalar(1.0 * dx)
+    c = (q_m * L_holes) / area
     print(f'Dolfinx domain area: {area}')
-    print(f'Dolfinx boundary length: {compute_scalar(1.0 * ds)}')
+    print(f'Dolfinx boundary length: {L_holes}')
 
     # Solve problem
     u = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
 
-    a = ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx
+    a = ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
     L = (
-        - q_net / (area * D_m) * v * ufl.dx # interior
+        - (c / D_m) * v * dx # interior
         + (q_m / D_m) * v * ds # boundary
     )
 
-    ## Pin a single node to enforce uniqueness
-    dofs = np.array([0], dtype=np.int32)
-    bc0  = dolfinx.fem.dirichletbc(PETSc.ScalarType(0.0), dofs, V)
-
-    problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=[bc0], petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
-    h_sol = problem.solve()
-    return h_sol
+    print("num local slaves:", mpc.num_local_slaves)
+    problem = dolfinx_mpc.LinearProblem(
+        a, L, mpc, bcs=[], petsc_options={"ksp_type":"cg","pc_type":"hypre","ksp_rtol":1e-10}
+    )
+    sol = problem.solve()
+    # # Subtract mean
+    # sol -= compute_scalar(sol * dx) / area
+    return mesh, sol
 
 
 def polymerization_induced_phase_separation(
@@ -213,15 +299,26 @@ def polymerization_induced_phase_separation(
 if __name__ == '__main__':
     from ..points.matern import matern_II_torus
     from ..points.cvt import gradient_flow_cvt_torus
-    from ..domains.utils import visualize_field, visualize_exterior_tags
+    from ..domains.utils import *
 
     rng = np.random.default_rng(42)
 
     r = 0.1
-    xs = matern_II_torus(1000, r, rng=rng)
-    xs = gradient_flow_cvt_torus(xs, 500, 1.0)
+    xs = matern_II_torus(2000, r, rng=rng)
+    # xs = np.array([
+    #     # [0.5, 0.75],
+    #     # [rng.uniform(0.4, 0.45), rng.uniform(0.4, 0.45)],
+    #     # [rng.uniform(0.55, 0.6), rng.uniform(0.55, 0.6)],
+    #     # [0.2, 0.25],
+    #     # [0.93, 0.2],
+    #     # [0.3, 0.45],
+    # ])
+    xs = gradient_flow_cvt_torus(xs, 2000, 1.0)
 
-    model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=50)
+    # Suppress gmsh output
+    gmsh.option.setNumber("General.Verbosity", 0)
+    
+    model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=100)
     print(f'True domain area: {1 - xs.shape[0] * np.pi * r**2}')
     print(f'True boundary length: {xs.shape[0] * 2 * np.pi * r}')
     # model.visualizeMesh()
@@ -229,9 +326,9 @@ if __name__ == '__main__':
     D_m = 1.0
     q_m = 1.0
 
-    w_m = monomer_steady_shape(model, D_m, q_m)
+    mesh, w_m = monomer_steady_shape(model, D_m, q_m)
     print('Computed steady-state monomer shape.')
-    visualize_field(model.get_physical_mesh(1), w_m)
+    visualize_field(mesh, w_m, warp=False)
 
     # visualize_exterior_tags(mesh)
 

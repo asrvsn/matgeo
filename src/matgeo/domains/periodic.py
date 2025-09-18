@@ -122,23 +122,25 @@ class SwissCheeseRVE(RandomInclusionRVE):
         # 1. Make mesh
         mesh = self.get_physical_mesh(1) # Domain
         tdim = mesh.topology.dim
-        assert tdim == 2, "Only 2D meshes are supported"
-        mesh.topology.create_connectivity(tdim-1, 0)
         mesh.topology.create_connectivity(tdim-1, tdim)
-        e2v = mesh.topology.connectivity(tdim-1, 0)
 
         # 1. Split exterior facets into periodic boundary and holes
         ext_indices = dolfinx.mesh.exterior_facet_indices(mesh.topology)
-        centroids = np.array([
-            mesh.geometry.x[e2v.links(f)].mean(axis=0) for f in ext_indices
-        ])
+        centroids = get_facet_centroids(mesh, ext_indices)
         ID_HOLES, ID_LEFT, ID_RIGHT, ID_TOP, ID_BOTTOM = 1, 2, 3, 4, 5
-        def label_centroid(cntr: np.ndarray) -> int:
-            if np.isclose(cntr[0], 0.0): return ID_LEFT
-            elif np.isclose(cntr[0], 1.0): return ID_RIGHT
-            elif np.isclose(cntr[1], 1.0): return ID_TOP
-            elif np.isclose(cntr[1], 0.0): return ID_BOTTOM
-            else: return ID_HOLES
+        ID_SIDES = np.array([ID_LEFT, ID_RIGHT, ID_TOP, ID_BOTTOM])
+        def label_centroid(x: np.ndarray) -> int:
+            conds = np.array([
+                np.isclose(x[0], 0.0, atol=1e-6),
+                np.isclose(x[0], 1.0, atol=1e-6),
+                np.isclose(x[1], 1.0, atol=1e-6),
+                np.isclose(x[1], 0.0, atol=1e-6),
+            ])
+            if conds.sum() == 0:
+                return ID_HOLES
+            else:
+                assert conds.sum() == 1
+                return ID_SIDES[conds][0]
         labels = np.array([label_centroid(c) for c in centroids], dtype=np.int32)
         ext_facetags = dolfinx.mesh.meshtags(mesh, tdim-1, ext_indices, labels)
 
@@ -148,12 +150,14 @@ class SwissCheeseRVE(RandomInclusionRVE):
         # 2. Create function space and multi-point constraint for periodicity
         V = dolfinx.fem.functionspace(mesh, element)
         mpc = dolfinx_mpc.MultiPointConstraint(V)
-        mpc.create_periodic_constraint_topological( # Left-right
-            V, ext_facetags, ID_LEFT, lambda x: np.array([x[0]-1, x[1]]), []
-        )
-        mpc.create_periodic_constraint_topological( # Top-bottom
-            V, ext_facetags, ID_TOP, lambda x: np.array([x[0], x[1]-1]), []
-        )
+
+        # mpc.create_periodic_constraint_topological( # Right (slave) -> left
+        #     V, ext_facetags, ID_RIGHT, lambda x: np.array([x[0]-1, x[1]]), []
+        # )
+        # mpc.create_periodic_constraint_topological( # Top (slave) -> bottom
+        #     V, ext_facetags, ID_TOP, lambda x: np.array([x[0], x[1]-1]), []
+        # )
+        # pdb.set_trace()
         mpc.finalize()
 
         return mesh, ext_facetags, ds, V, mpc
@@ -161,7 +165,7 @@ class SwissCheeseRVE(RandomInclusionRVE):
 def swiss_cheese(
         centers: np.ndarray, 
         radii: np.ndarray, 
-        boundary_elements: int=40,
+        boundary_elements: int=80,
         **kwargs
     ) -> SwissCheeseRVE:
     """
@@ -189,11 +193,11 @@ def swiss_cheese(
         "refinementOptions": {
             "maxMeshSize": "auto",
             "inclusionRefinement": True,
-            "interInclusionRefinement": True,
+            # "interInclusionRefinement": True,
             "elementsPerCircumference": boundary_elements,
-            "elementsBetweenInclusions": 3,
-            "inclusionRefinementWidth": 3,
-            "transitionElements": "auto",
+            # "elementsBetweenInclusions": 3,
+            # "inclusionRefinementWidth": 3,
+            # "transitionElements": "auto",
             # "aspectRatio": 2,
         }
     }
