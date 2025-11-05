@@ -93,7 +93,7 @@ def monomer_secretion(
         grid = pyvista.UnstructuredGrid(*dolfinx.plot.vtk_mesh(V))
         grid.point_data['sol_n'] = sol_n.x.array.copy()
         plotter = pyvista.Plotter(window_size=(2000, 2000))
-        renderer = plotter.add_mesh(grid, show_edges=True, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
+        plotter.add_mesh(grid, show_edges=False, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
         plotter.view_xy()
         plotter.reset_camera()
         plotter.show(auto_close=False, interactive_update=True)
@@ -109,7 +109,6 @@ def monomer_secretion(
     A = dolfinx_mpc.assemble_matrix(dolfinx.fem.form(A_form), mpc, bcs=[])
     A.assemble()
     L_compiled = dolfinx.fem.form(L_form)
-    x = A.createVecRight() # Solution vector
     b = A.createVecRight() # RHS vector
 
     ## Solver
@@ -121,6 +120,7 @@ def monomer_secretion(
     pc.setType('hypre')
     pc.setHYPREType('boomeramg')
 
+    ## Time step
     t = 0.0
     for n in tqdm(range(n_steps)):
         wall_t = time.perf_counter()
@@ -130,11 +130,10 @@ def monomer_secretion(
         b = dolfinx_mpc.assemble_vector(L_compiled, mpc, b=b)
 
         # Solve Ax = b
-        solver.solve(b, x)
+        solver.solve(b, sol_n_next.x.petsc_vec)
 
         # Apply periodicity constraints
-        mpc.backsubstitution(x)
-        sol_n_next.x.array[:] = x.array
+        mpc.backsubstitution(sol_n_next)
 
         # Update solution
         sol_n.x.array[:] = sol_n_next.x.array
@@ -142,13 +141,16 @@ def monomer_secretion(
             elapsed = time.perf_counter() - wall_t
             if elapsed < delay:
                 time.sleep(delay - elapsed)
-            grid.point_data['sol_n'] = sol_n.x.array.copy()
-            plotter.update_scalars(sol_n.x.array)
-            # plotter.render()
+            sol_n_arr = sol_n.x.array.copy()
+            grid.point_data['sol_n'] = sol_n_arr
+            scalar_range = (sol_n_arr.min(), sol_n_arr.max())
+            plotter.update_scalars(sol_n_arr, render=False)
+            plotter.update_scalar_bar_range(scalar_range)
+            plotter.render()
         t += dt
 
     if live:
-        plotter.close()
+        print("Integration complete. Close the PyVista window manually when ready.")
 
     return mesh, sol_n
 
@@ -181,7 +183,7 @@ def monomer_steady_shape(
 
     a = ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
     L = (
-        - (c / D_m) * v * dx # interior
+        (c / D_m) * v * dx # interior
         + (q_m / D_m) * v * ds # boundary
     )
 
@@ -315,8 +317,8 @@ if __name__ == '__main__':
 
     rng = np.random.default_rng(42)
 
-    r = 0.1
-    xs = matern_II_torus(2000, r, rng=rng)
+    r = 0.05
+    xs = matern_II_torus(10, r, rng=rng)
     # xs = np.array([
     #     # [0.5, 0.75],
     #     # [rng.uniform(0.4, 0.45), rng.uniform(0.4, 0.45)],
@@ -330,19 +332,20 @@ if __name__ == '__main__':
     # Suppress gmsh output
     gmsh.option.setNumber("General.Verbosity", 0)
     
-    model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=100)
+    model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=40)
     print(f'True domain area: {1 - xs.shape[0] * np.pi * r**2}')
     print(f'True boundary length: {xs.shape[0] * 2 * np.pi * r}')
     # model.visualizeMesh()
     
-    D_m = 0.01
-    q_m = 1.0
+    D_m = 1.0
+    q_m = 10.0
 
     # mesh, w_m = monomer_steady_shape(model, D_m, q_m)
     # print('Computed steady-state monomer shape.')
     # visualize_field(mesh, w_m, warp=False)
 
     mesh, sol_n = monomer_secretion(model, D_m, q_m, n_steps=100, dt=1e-3, theta=1/2, live=True)
+
 
     # visualize_exterior_tags(mesh)
 

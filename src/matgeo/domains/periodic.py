@@ -145,7 +145,7 @@ class SwissCheeseRVE(RandomInclusionRVE):
         ext_facetags = dolfinx.mesh.meshtags(mesh, tdim-1, ext_indices, labels)
 
         # 2. Create boundary measure for holes
-        ds = ufl.Measure('ds', domain=mesh, subdomain_data=ext_facetags)(1)
+        ds = ufl.Measure('ds', domain=mesh, subdomain_data=ext_facetags)(ID_HOLES)
         
         # 2. Create function space and multi-point constraint for periodicity
         V = dolfinx.fem.functionspace(mesh, element)
@@ -157,7 +157,6 @@ class SwissCheeseRVE(RandomInclusionRVE):
         mpc.create_periodic_constraint_topological( # Top (slave) -> bottom
             V, ext_facetags, ID_TOP, lambda x: np.array([x[0], x[1]-1]), []
         )
-        # pdb.set_trace()
         mpc.finalize()
 
         return mesh, ext_facetags, ds, V, mpc
