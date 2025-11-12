@@ -1,10 +1,10 @@
 # 0. OS-specific prereqs
 macOS:
 ```bash
-brew install cmake pkg-config autoconf automake autoconf-archive
+brew install cmake pkg-config autoconf automake autoconf-archive vcpkg libtool
 ```
 
-linux:
+linux: `apt install` the above packages.
 
 
 # 1. Install `vcpkg`
@@ -13,19 +13,24 @@ git clone https://github.com/microsoft/vcpkg.git
 cd vcpkg && ./bootstrap-vcpkg.sh
 ```
 
+Set `VCPKG_ROOT` to the root of the `vcpkg` repository.
+```bash
+export VCPKG_ROOT=/path/to/vcpkg
+```
+(e.g. in `.bashrc` or `.zshrc`).
+
 # 2. Update `conda` environment
 ```bash
 mamba env update -n ENV_NAME -f environment.yml
 ```
 
+Install [asrvsn_math](https://github.com/asrvsn/asrvsn_math).
+
 # 3. Install `matgeo`
 ```bash
 pip install --no-build-isolation -ve .
 ```
-It's going to fail the first time. Run it again.
-```bash
-pip install --no-build-isolation -ve .
-```
+It's going to fail the first time, run `rm -rf build` and then ^ again.
 
 # 4. Dealing with `pyopencl` issues on
 
