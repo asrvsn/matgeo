@@ -4,7 +4,7 @@ channels:
 dependencies:
   - python=3.12
   - numpy>=2.2.0
-  - fenics-dolfinx
+  - fenics-dolfinx<0.10.0
   - dolfinx_mpc
   - mpich
   - scikit-build-core
@@ -12,3 +12,4 @@ dependencies:
   - ocl_icd_wrapper_apple
   - pythonocc-core
   - gmshmodel
+  - pyvista

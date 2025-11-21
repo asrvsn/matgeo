@@ -68,8 +68,9 @@ def monomer_secretion(
         n_steps: int,
         dt: float,
         theta: float=1/2,
-        live: bool=True,
+        live: bool=False,
         delay: float=0.1, # Delay in seconds between frames
+        check_mass: bool=False,
     ) -> Tuple[dolfinx.mesh.Mesh, dolfinx.fem.Function]:
     '''
     Diffusion of monomer with influx q_m through boundary.
@@ -93,7 +94,7 @@ def monomer_secretion(
         grid = pyvista.UnstructuredGrid(*dolfinx.plot.vtk_mesh(V))
         grid.point_data['sol_n'] = sol_n.x.array.copy()
         plotter = pyvista.Plotter(window_size=(2000, 2000))
-        plotter.add_mesh(grid, show_edges=False, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
+        plotter.add_mesh(grid, show_edges=True, lighting=False, cmap=plt.cm.get_cmap('viridis', 25))
         plotter.view_xy()
         plotter.reset_camera()
         plotter.show(auto_close=False, interactive_update=True)
@@ -136,7 +137,13 @@ def monomer_secretion(
         mpc.backsubstitution(sol_n_next)
 
         # Update solution
+        if check_mass:
+            mass_n, mass_n_next = compute_scalar(sol_n * dx), compute_scalar(sol_n_next * dx)
+            influx = compute_scalar(1.0 * ds) * q_m * dt
+            assert np.isclose(mass_n_next - mass_n, influx, rtol=1e-1), f'Mass conservation violated: {mass_n_next - mass_n} != {influx}'
+
         sol_n.x.array[:] = sol_n_next.x.array
+
         if live:
             elapsed = time.perf_counter() - wall_t
             if elapsed < delay:
@@ -317,8 +324,8 @@ if __name__ == '__main__':
 
     rng = np.random.default_rng(42)
 
-    r = 0.05
-    xs = matern_II_torus(10, r, rng=rng)
+    r = 0.1
+    xs = matern_II_torus(1000, r, rng=rng)
     # xs = np.array([
     #     # [0.5, 0.75],
     #     # [rng.uniform(0.4, 0.45), rng.uniform(0.4, 0.45)],
@@ -327,7 +334,7 @@ if __name__ == '__main__':
     #     # [0.93, 0.2],
     #     # [0.3, 0.45],
     # ])
-    xs = gradient_flow_cvt_torus(xs, 2000, 1.0)
+    xs = gradient_flow_cvt_torus(xs, 500, 1.0)
 
     # Suppress gmsh output
     gmsh.option.setNumber("General.Verbosity", 0)
@@ -335,7 +342,7 @@ if __name__ == '__main__':
     model = swiss_cheese(xs, np.full(xs.shape[0], r), boundary_elements=40)
     print(f'True domain area: {1 - xs.shape[0] * np.pi * r**2}')
     print(f'True boundary length: {xs.shape[0] * 2 * np.pi * r}')
-    # model.visualizeMesh()
+    model.visualizeMesh()
     
     D_m = 1.0
     q_m = 10.0
@@ -344,7 +351,7 @@ if __name__ == '__main__':
     # print('Computed steady-state monomer shape.')
     # visualize_field(mesh, w_m, warp=False)
 
-    mesh, sol_n = monomer_secretion(model, D_m, q_m, n_steps=100, dt=1e-3, theta=1/2, live=True)
+    mesh, sol_n = monomer_secretion(model, D_m, q_m, n_steps=100, dt=1e-3, theta=1/2, live=True, check_mass=True)
 
 
     # visualize_exterior_tags(mesh)

@@ -19,7 +19,6 @@ import pickle
 import alphashape
 from collections import defaultdict
 import trimesh
-import pyclesperanto_prototype as cle
 import gmsh
 
 import dolfinx.mesh as dmesh 
@@ -524,6 +523,7 @@ class Triangulation(Surface) :
             verts, faces, normals, values = marching_cubes(volume, spacing=spacing, **kwargs)
             return Triangulation(verts, faces)
         elif method == 'voronoi_otsu':
+            import pyclesperanto_core as cle # TODO: do this here as cle is a very poorly supported package
             mask = cle.voronoi_otsu_labeling(volume, **kwargs).get() # Convert to numpy array
             if 'spot_sigma' in kwargs:
                 del kwargs['spot_sigma']

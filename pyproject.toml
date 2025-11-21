@@ -42,7 +42,7 @@ dependencies = [
     "pyopencl",
     "transforms3d",
     "pygmsh",
-    "meshio>=5.3.5",  # NumPy 2.0+ compatibility
+    "meshio",  # NumPy 2.0+ compatibility
     "gmshModel",
 ]
 

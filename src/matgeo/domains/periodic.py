@@ -97,6 +97,7 @@ class SwissCheeseRVE(RandomInclusionRVE):
         return super().generate_mesh(**mesh_options)
 
     def to_dolfinx(self) -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.meshtags, dolfinx.mesh.meshtags]:
+        # return dolfinx.io.gmsh.model_to_mesh(self.gmshAPI, MPI.COMM_WORLD, 0, gdim=self.dimension)
         return dolfinx.io.gmshio.model_to_mesh(self.gmshAPI, MPI.COMM_WORLD, 0, gdim=self.dimension)
 
     def get_physical_mesh(self, physical_group: int):
@@ -107,7 +108,7 @@ class SwissCheeseRVE(RandomInclusionRVE):
         Returns:
             dolfinx.mesh.Mesh: Submesh of the physical group
         """
-        mesh, cell_tags, _ = self.to_dolfinx()
+        mesh, cell_tags = self.to_dolfinx()[:2]
         assert cell_tags is not None and len(cell_tags.indices) > 0, "Cell tags are not available"
         cells_pg = cell_tags.indices[cell_tags.values == physical_group]
         assert len(cells_pg) > 0, "No cells in physical group"
@@ -146,6 +147,13 @@ class SwissCheeseRVE(RandomInclusionRVE):
 
         # 2. Create boundary measure for holes
         ds = ufl.Measure('ds', domain=mesh, subdomain_data=ext_facetags)(ID_HOLES)
+
+        ## Sanity check
+        total_boundary_length = 2 * np.pi * np.asarray(self.radii).sum()
+        ds_length = compute_scalar(1.0 * ds)
+        assert np.isclose(
+            ds_length, total_boundary_length, rtol=1e-2
+        ), f'Total boundary length {ds_length} does not match expected {total_boundary_length}'
         
         # 2. Create function space and multi-point constraint for periodicity
         V = dolfinx.fem.functionspace(mesh, element)
@@ -211,8 +219,8 @@ if __name__ == "__main__":
 
     rng = np.random.default_rng(42)
 
-    r = 0.1
-    xs = matern_II_torus(100, r, rng=rng)
+    r = 0.07
+    xs = matern_II_torus(1000, r, rng=rng)
     xs = gradient_flow_cvt_torus(xs, 10, 1.0)
     # mesh = swiss_cheese(xs, np.full(xs.shape[0], r), 0.01, 0.1)
     # tri = Triangulation.from_gmsh(mesh)
